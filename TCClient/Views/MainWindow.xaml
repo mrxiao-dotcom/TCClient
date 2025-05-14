@@ -1,0 +1,116 @@
+<Window x:Class="TCClient.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="交易客户端" Height="720" Width="1280"
+        WindowStartupLocation="CenterScreen"
+        WindowState="Maximized">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 菜单栏 -->
+        <Menu Grid.Row="0">
+            <!-- 功能菜单 -->
+            <MenuItem Header="功能">
+                <MenuItem Header="寻找机会" 
+                          Command="{Binding ShowFindOpportunityCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6M12,8A4,4 0 0,0 8,12A4,4 0 0,0 12,16A4,4 0 0,0 16,12A4,4 0 0,0 12,8Z" 
+                              Fill="Black" 
+                              Stretch="Uniform" 
+                              Width="16" 
+                              Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="涨跌幅排行" 
+                          Command="{Binding ShowRankingCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M3,17V19H9V17H3M3,5V7H13V5H3M13,21V19H21V17H13V15H11V21H13M7,9V11H3V13H7V15H9V9H7M21,13V11H11V13H21M15,9H17V7H21V5H17V3H15V9Z" 
+                              Fill="Black" 
+                              Stretch="Uniform" 
+                              Width="16" 
+                              Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="下单窗口" Command="{Binding ShowOrderWindowCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M3,17V19H9V17H3M3,5V7H13V5H3M13,21V19H21V17H13V15H11V21H13M7,9V11H3V13H7V15H9V9H7M21,13V11H11V13H21M15,9H17V7H21V5H17V3H15V9Z" Fill="Black" Stretch="Uniform" Width="16" Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="退出" 
+                          Command="{Binding ExitCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" 
+                              Fill="Black" 
+                              Stretch="Uniform" 
+                              Width="16" 
+                              Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+            </MenuItem>
+
+            <!-- 设置菜单 -->
+            <MenuItem Header="设置">
+                <MenuItem Header="配置账户" 
+                          Command="{Binding ShowAccountConfigCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z" 
+                              Fill="Black" 
+                              Stretch="Uniform" 
+                              Width="16" 
+                              Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <MenuItem Header="数据库配置" 
+                          Command="{Binding ShowDatabaseConfigCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M4,1H20A1,1 0 0,1 21,2V6A1,1 0 0,1 20,7H4A1,1 0 0,1 3,6V2A1,1 0 0,1 4,1M4,9H20A1,1 0 0,1 21,10V14A1,1 0 0,1 20,15H4A1,1 0 0,1 3,14V10A1,1 0 0,1 4,9M4,17H20A1,1 0 0,1 21,18V22A1,1 0 0,1 20,23H4A1,1 0 0,1 3,22V18A1,1 0 0,1 4,17M9,5H10V3H9V5M9,13H10V11H9V13M9,21H10V19H9V21M5,3V5H7V3H5M5,11V13H7V11H5M5,19V21H7V19H5Z" 
+                              Fill="Black" 
+                              Stretch="Uniform" 
+                              Width="16" 
+                              Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="关于" 
+                          Command="{Binding ShowAboutCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" 
+                              Fill="Black" 
+                              Stretch="Uniform" 
+                              Width="16" 
+                              Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+            </MenuItem>
+        </Menu>
+
+        <!-- 主内容区域 -->
+        <Grid Grid.Row="1" Margin="10">
+            <ContentControl Content="{Binding CurrentView}"/>
+        </Grid>
+
+        <!-- 状态栏 -->
+        <StatusBar Grid.Row="2">
+            <StatusBarItem>
+                <TextBlock Text="{Binding StatusMessage}"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding CurrentUser, StringFormat='当前用户：{0}'}"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding CurrentDatabase, StringFormat='当前数据库：{0}'}"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding CurrentAccountIdDisplay}"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window> 

@@ -1,0 +1,68 @@
+# Visual Studio 工程文件
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.sln.iml
+
+# 编译输出目录
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+
+# NuGet 包
+**/[Pp]ackages/*
+*.nupkg
+*.snupkg
+
+# 日志文件
+*.log
+[Ll]og/
+[Ll]ogs/
+
+# 临时文件
+*.tmp
+*.temp
+*.cache
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# 数据库文件
+*.mdf
+*.ldf
+*.ndf
+
+# 敏感配置文件
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.json
+!appsettings.json
+*.pfx
+*.key
+*.pem
+
+# IDE 配置文件
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+
+# 其他
+node_modules/
+__pycache__/
+*.pyc
+*.binlog 
