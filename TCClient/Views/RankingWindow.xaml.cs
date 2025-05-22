@@ -7,14 +7,22 @@ namespace TCClient.Views
 {
     public partial class RankingWindow : Window
     {
-        public RankingWindow()
+        private readonly IRankingService _rankingService;
+        private readonly IMessageService _messageService;
+
+        public RankingWindow(
+            IRankingService rankingService,
+            IMessageService messageService)
         {
             InitializeComponent();
+            _rankingService = rankingService;
+            _messageService = messageService;
+            LoadRankingData();
+        }
 
-            var databaseService = ServiceLocator.GetService<IDatabaseService>();
-            var messageService = ServiceLocator.GetService<IMessageService>();
-
-            DataContext = new RankingViewModel(databaseService, messageService);
+        private void LoadRankingData()
+        {
+            // Implementation of LoadRankingData method
         }
     }
 } 

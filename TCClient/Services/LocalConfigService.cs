@@ -39,6 +39,7 @@ namespace TCClient.Services
     {
         private readonly string _configPath;
         private readonly string _credentialsPath;
+        private readonly string _apiConfigPath;
         private readonly byte[] _key = Encoding.UTF8.GetBytes("YourSecretKey123"); // 16字节密钥
         private List<DatabaseConnection> _connections;
 
@@ -50,6 +51,7 @@ namespace TCClient.Services
             
             _configPath = Path.Combine(appFolder, "database_config.json");
             _credentialsPath = Path.Combine(appFolder, "credentials.json");
+            _apiConfigPath = Path.Combine(appFolder, "api_config.json");
 
             _connections = new List<DatabaseConnection>();
             
@@ -198,6 +200,73 @@ namespace TCClient.Services
 
             var connection = _connections[0];
             return $"Server={connection.Server};Port={connection.Port};Database={connection.Database};Uid={connection.Username};Pwd={connection.Password};";
+        }
+
+        public async Task SaveApiConfig(string apiKey, string apiSecret)
+        {
+            try
+            {
+                var config = new
+                {
+                    ApiKey = EncryptString(apiKey),
+                    ApiSecret = EncryptString(apiSecret)
+                };
+
+                var json = JsonSerializer.Serialize(config);
+                await File.WriteAllTextAsync(_apiConfigPath, json);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"保存API配置失败：{ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<(string ApiKey, string ApiSecret)> LoadApiConfig()
+        {
+            if (!File.Exists(_apiConfigPath))
+            {
+                return (string.Empty, string.Empty);
+            }
+
+            try
+            {
+                var json = await File.ReadAllTextAsync(_apiConfigPath);
+                var config = JsonSerializer.Deserialize<ApiConfig>(json);
+
+                if (config == null)
+                {
+                    return (string.Empty, string.Empty);
+                }
+
+                return (
+                    DecryptString(config.ApiKey),
+                    DecryptString(config.ApiSecret)
+                );
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"加载API配置失败：{ex.Message}");
+                return (string.Empty, string.Empty);
+            }
+        }
+
+        public string GetApiKey()
+        {
+            var config = LoadApiConfig().GetAwaiter().GetResult();
+            return config.ApiKey;
+        }
+
+        public string GetApiSecret()
+        {
+            var config = LoadApiConfig().GetAwaiter().GetResult();
+            return config.ApiSecret;
+        }
+
+        private class ApiConfig
+        {
+            public string ApiKey { get; set; }
+            public string ApiSecret { get; set; }
         }
     }
 } 

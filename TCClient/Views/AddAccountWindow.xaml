@@ -1,0 +1,81 @@
+<Window x:Class="TCClient.Views.AddAccountWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="添加交易账户" Height="500" Width="600"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- 基本信息 -->
+                <GroupBox Header="基本信息" Margin="0,0,0,10">
+                    <StackPanel Margin="10">
+                        <TextBlock Text="账户名称："/>
+                        <TextBox Text="{Binding AccountName, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,10"/>
+                        
+                        <TextBlock Text="初始资金："/>
+                        <TextBox Text="{Binding InitialEquity, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,10"/>
+                        
+                        <TextBlock Text="机会数量："/>
+                        <TextBox Text="{Binding OpportunityCount, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,10"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- API配置 -->
+                <GroupBox Header="API配置" Margin="0,0,0,10">
+                    <StackPanel Margin="10">
+                        <TextBlock Text="Binance账户ID："/>
+                        <TextBox Text="{Binding BinanceAccountId, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,10"/>
+                        
+                        <TextBlock Text="API Key："/>
+                        <TextBox Text="{Binding ApiKey, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,10"/>
+                        
+                        <TextBlock Text="API Secret："/>
+                        <PasswordBox x:Name="ApiSecretBox" Margin="0,5,0,10"/>
+                        
+                        <TextBlock Text="API Passphrase："/>
+                        <PasswordBox x:Name="ApiPassphraseBox" Margin="0,5,0,10"/>
+                    </StackPanel>
+                </GroupBox>
+
+                <!-- 其他设置 -->
+                <GroupBox Header="其他设置" Margin="0,0,0,10">
+                    <StackPanel Margin="10">
+                        <CheckBox Content="设为默认账户" 
+                                  IsChecked="{Binding IsDefault}" 
+                                  Margin="0,5,0,10"/>
+                        
+                        <TextBlock Text="备注："/>
+                        <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" 
+                                 Height="60" 
+                                 TextWrapping="Wrap" 
+                                 AcceptsReturn="True" 
+                                 VerticalScrollBarVisibility="Auto"
+                                 Margin="0,5,0,10"/>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 按钮区域 -->
+        <StackPanel Grid.Row="1" 
+                    Orientation="Horizontal" 
+                    HorizontalAlignment="Right" 
+                    Margin="0,10,0,0">
+            <Button Content="确定" 
+                    Command="{Binding SaveCommand}"
+                    Width="100" 
+                    Height="30" 
+                    Margin="0,0,10,0"/>
+            <Button Content="取消" 
+                    Command="{Binding CancelCommand}"
+                    Width="100" 
+                    Height="30"/>
+        </StackPanel>
+    </Grid>
+</Window> 

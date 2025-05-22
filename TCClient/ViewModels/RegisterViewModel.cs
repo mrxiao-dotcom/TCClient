@@ -12,14 +12,14 @@ namespace TCClient.ViewModels
     {
         private readonly IUserService _userService;
         private readonly IMessageService _messageService;
-        private string _username = string.Empty;
-        private string _password = string.Empty;
-        private string _confirmPassword = string.Empty;
-        private string _errorMessage = string.Empty;
+        private string _username;
+        private string _password;
+        private string _confirmPassword;
+        private string _errorMessage;
         private bool _isRegistering;
 
-        public event Action? RegisterSuccess;
-        public event Action? CancelRequested;
+        public event EventHandler RegisterSuccess;
+        public event EventHandler CancelRequested;
 
         public string Username
         {
@@ -92,12 +92,15 @@ namespace TCClient.ViewModels
         public ICommand RegisterCommand { get; }
         public ICommand CancelCommand { get; }
 
-        public RegisterViewModel()
+        public RegisterViewModel(
+            IUserService userService,
+            IMessageService messageService)
         {
-            _userService = ServiceLocator.GetService<IUserService>();
-            _messageService = ServiceLocator.GetService<IMessageService>();
+            _userService = userService;
+            _messageService = messageService;
+
             RegisterCommand = new RelayCommand(async () => await RegisterAsync(), () => CanRegister());
-            CancelCommand = new RelayCommand(() => CancelRequested?.Invoke());
+            CancelCommand = new RelayCommand(() => OnCancelRequested());
         }
 
         private void ValidateInput()
@@ -133,77 +136,64 @@ namespace TCClient.ViewModels
         {
             return !IsRegistering && 
                    !string.IsNullOrWhiteSpace(Username) && 
-                   !string.IsNullOrWhiteSpace(Password) && 
-                   Password == ConfirmPassword &&
+                   !string.IsNullOrWhiteSpace(Password) &&
+                   !string.IsNullOrWhiteSpace(ConfirmPassword) &&
                    string.IsNullOrEmpty(ErrorMessage);
         }
 
         private async Task RegisterAsync()
         {
-            if (!CanRegister() || _isRegistering) return;
-
             try
             {
-                _isRegistering = true;
-                ErrorMessage = string.Empty;
-
-                if (string.IsNullOrWhiteSpace(Username))
+                if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
                 {
-                    ErrorMessage = "请输入用户名";
-                    Console.WriteLine("注册失败：用户名为空");
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(Password))
-                {
-                    ErrorMessage = "请输入密码";
-                    Console.WriteLine("注册失败：密码为空");
+                    _messageService.ShowMessage("用户名和密码不能为空", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 
                 if (Password != ConfirmPassword)
                 {
-                    ErrorMessage = "两次输入的密码不一致";
-                    Console.WriteLine("注册失败：密码不一致");
+                    _messageService.ShowMessage("两次输入的密码不一致", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
 
-                var result = await _userService.CreateUserAsync(Username, Password);
-                if (result)
+                IsRegistering = true;
+                ErrorMessage = string.Empty;
+
+                // 验证用户是否已存在
+                var isValid = await _userService.ValidateUserAsync(Username, Password);
+                if (isValid)
                 {
-                    Console.WriteLine("注册成功！");
-                    RegisterSuccess?.Invoke();
+                    ErrorMessage = "用户名已存在";
+                    return;
+                }
+
+                // 创建新用户
+                var success = await _userService.CreateUserAsync(Username, Password);
+                if (success)
+                {
+                    _messageService.ShowMessage("注册成功", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                    RegisterSuccess?.Invoke(this, EventArgs.Empty);
                 }
                 else
                 {
-                    ErrorMessage = "用户名已存在";
-                    Console.WriteLine("注册失败：用户名已存在");
+                    ErrorMessage = "注册失败，请稍后重试";
                 }
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"注册失败：{ex.Message}";
-                Console.WriteLine($"注册失败：{ex}");
-                Console.WriteLine($"异常堆栈：{ex.StackTrace}");
+                _messageService.ShowMessage($"注册失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
-                _isRegistering = false;
+                IsRegistering = false;
             }
         }
 
-        private void Cancel()
+        private void OnCancelRequested()
         {
-            // 关闭窗口的逻辑应该在View中处理
-            if (Application.Current.Windows.Count > 0)
-            {
-                var window = Application.Current.Windows[Application.Current.Windows.Count - 1];
-                if (window is Window w)
-                {
-                    w.DialogResult = false;
-                    w.Close();
-                }
-            }
+            CancelRequested?.Invoke(this, EventArgs.Empty);
         }
     }
 } 

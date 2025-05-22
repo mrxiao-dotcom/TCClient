@@ -8,20 +8,19 @@ namespace TCClient.Utils
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            // decimal -> string
-            if (value is decimal dec)
-                return dec.ToString();
-            return value;
+            if (value is decimal decimalValue)
+            {
+                return decimalValue * 100;
+            }
+            return 0;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            // string -> decimal
-            var str = value as string;
-            if (string.IsNullOrWhiteSpace(str)) return 0m;
-            str = str.Replace("%", "").Trim();
-            if (decimal.TryParse(str, out var result))
-                return result;
+            if (value is string stringValue && decimal.TryParse(stringValue, out decimal decimalValue))
+            {
+                return decimalValue / 100;
+            }
             return 0m;
         }
     }

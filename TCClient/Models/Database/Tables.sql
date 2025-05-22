@@ -14,6 +14,7 @@ CREATE TABLE users (
 CREATE TABLE trading_accounts (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     account_name VARCHAR(50) NOT NULL COMMENT '账户名称',
+    type VARCHAR(20) NOT NULL DEFAULT '模拟账户' COMMENT '账户类型：模拟账户/实盘账户',
     binance_account_id VARCHAR(50) NOT NULL COMMENT '币安账户ID',
     api_key VARCHAR(255) NOT NULL COMMENT 'API Key',
     api_secret VARCHAR(255) NOT NULL COMMENT 'API Secret',
@@ -23,6 +24,7 @@ CREATE TABLE trading_accounts (
     opportunity_count INT DEFAULT 10 COMMENT '机会次数（用于计算单笔风险）',
     status TINYINT(1) DEFAULT 1 COMMENT '状态：1-启用，0-禁用',
     is_active TINYINT(1) DEFAULT 0 COMMENT '是否当前激活账户',
+    description TEXT NULL COMMENT '备注说明',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_account_name (account_name),

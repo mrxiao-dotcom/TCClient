@@ -8,6 +8,9 @@ using MySql.Data.MySqlClient;
 using TCClient.Models;
 using TCClient.ViewModels;
 using System.IO;
+using TCClient.Utils;
+using System.Threading;
+using System.Linq;
 
 namespace TCClient.Services
 {
@@ -15,85 +18,143 @@ namespace TCClient.Services
     {
         private readonly LocalConfigService _configService;
         private string _connectionString;
-        private static readonly string LogFilePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-            "TCClient_Database.log");
-
-        private static void LogToFile(string message)
-        {
-            try
-            {
-                var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-                var logMessage = $"[{timestamp}] {message}{Environment.NewLine}";
-                File.AppendAllText(LogFilePath, logMessage);
-            }
-            catch
-            {
-                // 忽略日志写入失败
-            }
-        }
 
         public MySqlDatabaseService()
         {
-            LogToFile("MySqlDatabaseService 构造函数开始执行...");
+            LogManager.Log("Database", "MySqlDatabaseService 构造函数开始执行...");
             _configService = new LocalConfigService();
-            LogToFile("MySqlDatabaseService 构造函数执行完成");
+            LogManager.Log("Database", "MySqlDatabaseService 构造函数执行完成");
         }
 
         private async Task LoadConnectionStringAsync()
-        {
-            LogToFile("开始加载数据库连接字符串...");
-            if (string.IsNullOrEmpty(_connectionString))
             {
                 try
                 {
+                LogManager.Log("Database", "加载数据库连接字符串...");
                     var connections = await _configService.LoadDatabaseConnections();
-                    LogToFile($"加载到 {connections.Count} 个数据库连接配置");
-                    if (connections.Count > 0)
-                    {
-                        _connectionString = GetConnectionString(connections[0]);
-                        LogToFile($"已设置连接字符串，服务器: {connections[0].Server}, 数据库: {connections[0].Database}");
-                    }
-                    else
-                    {
-                        LogToFile("警告：没有可用的数据库连接配置");
-                    }
+                
+                if (connections.Count == 0)
+                {
+                    throw new InvalidOperationException("没有可用的数据库连接配置");
+                }
+                
+                var connection = connections[0];
+                string server = connection.Server;
+                string port = connection.Port.ToString();
+                string database = connection.Database;
+                string username = connection.Username;
+                string password = connection.Password;
+                
+                // 构建连接字符串
+                _connectionString = $"Server={server};Port={port};Database={database};User ID={username};Password={password};";
+                LogManager.Log("Database", $"数据库连接字符串已加载: Server={server};Port={port};Database={database}");
                 }
                 catch (Exception ex)
                 {
-                    LogToFile($"加载数据库连接配置时发生错误: {ex.Message}");
-                    LogToFile($"错误详情: {ex}");
+                LogManager.LogException("Database", ex, "加载数据库连接字符串失败");
                     throw;
                 }
             }
-            LogToFile("数据库连接字符串加载完成");
-        }
-
-        private string GetConnectionString(DatabaseConnection connection)
-        {
-            LogToFile($"构建连接字符串 - 服务器: {connection.Server}, 端口: {connection.Port}, 数据库: {connection.Database}");
-            
-            // 使用最简单的连接字符串格式
-            var connectionString = $"Server={connection.Server};Port={connection.Port};Database={connection.Database};Uid={connection.Username};Pwd={connection.Password};";
-            
-            LogToFile($"构建的连接字符串: {connectionString}");
-            return connectionString;
-        }
 
         private async Task EnsureConnectionStringLoadedAsync()
         {
-            LogToFile("确保连接字符串已加载...");
+            LogManager.Log("Database", "确保连接字符串已加载...");
             if (string.IsNullOrEmpty(_connectionString))
             {
                 await LoadConnectionStringAsync();
             }
-            LogToFile("连接字符串检查完成");
+            LogManager.Log("Database", "连接字符串检查完成");
         }
 
-        public async Task<bool> TestConnectionAsync()
+        // 辅助方法：记录数据库操作开始
+        private void LogDatabaseOperationStart(string operation, string sql = null, Dictionary<string, object> parameters = null)
         {
-            LogToFile("开始测试数据库连接...");
-            MySqlConnection connection = null;
+            LogManager.Log("Database", $"=== 开始数据库操作: {operation} ===");
+            if (!string.IsNullOrEmpty(sql))
+            {
+                LogManager.Log("Database", $"SQL: {sql}");
+            }
+            
+            if (parameters != null && parameters.Count > 0)
+            {
+                LogManager.Log("Database", "参数:");
+                foreach (var param in parameters)
+                {
+                    string paramValue = param.Value?.ToString() ?? "null";
+                    LogManager.Log("Database", $"  @{param.Key} = {paramValue}");
+                }
+            }
+        }
+        
+        // 辅助方法：记录数据库操作结束
+        private void LogDatabaseOperationEnd(string operation, bool success)
+        {
+            LogManager.Log("Database", $"=== 数据库操作结束: {operation} - {(success ? "成功" : "失败")} ===");
+        }
+        
+        // 辅助方法：记录数据库操作异常
+        private void LogDatabaseOperationError(string operation, Exception ex)
+        {
+            LogManager.LogException("Database", ex, $"数据库操作失败: {operation}");
+            
+            // 特别处理MySQL异常
+            if (ex is MySqlException mysqlEx)
+            {
+                LogManager.Log("Database", $"MySQL错误码: {mysqlEx.Number}");
+                LogManager.Log("Database", $"SQL状态: {mysqlEx.SqlState}");
+                
+                switch (mysqlEx.Number)
+                {
+                    case 1042: // 无法连接到MySQL服务器
+                        LogManager.Log("Database", "无法连接到MySQL服务器，请检查服务器是否启动或网络连接");
+                        break;
+                    case 1045: // 访问被拒绝（用户名或密码错误）
+                        LogManager.Log("Database", "MySQL访问被拒绝，用户名或密码错误");
+                        break;
+                    case 1049: // 未知数据库
+                        LogManager.Log("Database", "指定的数据库不存在");
+                        break;
+                    case 1146: // 表不存在
+                        LogManager.Log("Database", "指定的表不存在");
+                        break;
+                    case 1062: // 主键或唯一键冲突
+                        LogManager.Log("Database", "记录已存在，违反唯一性约束");
+                        break;
+                    default:
+                        LogManager.Log("Database", $"未处理的MySQL错误：{mysqlEx.Number}");
+                        break;
+                }
+            }
+        }
+
+        public bool TestConnection(string connectionString)
+        {
+            var operation = "测试数据库连接";
+            LogDatabaseOperationStart(operation, null, new Dictionary<string, object> {
+                { "connectionString", $"{connectionString.Substring(0, Math.Min(30, connectionString.Length))}..." }
+            });
+            
+            try
+            {
+                using (var connection = new MySqlConnection(connectionString))
+                {
+                    connection.Open();
+                    LogDatabaseOperationEnd(operation, true);
+                    return true;
+                    }
+                }
+            catch (Exception ex)
+                {
+                LogDatabaseOperationError(operation, ex);
+                LogDatabaseOperationEnd(operation, false);
+                            return false;
+                        }
+                    }
+
+        public async Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default)
+                        {
+            var operation = "异步测试数据库连接";
+            LogDatabaseOperationStart(operation);
             
             try
             {
@@ -101,253 +162,83 @@ namespace TCClient.Services
                 
                 if (string.IsNullOrEmpty(_connectionString))
                 {
-                    LogToFile("错误：数据库连接字符串未设置");
+                    LogManager.Log("Database", "错误：数据库连接字符串未设置");
                     throw new InvalidOperationException("数据库连接字符串未设置");
                 }
 
-                // 解析连接字符串以获取服务器信息
-                var builder = new MySqlConnectionStringBuilder(_connectionString);
-                LogToFile($"连接信息 - 服务器: {builder.Server}, 端口: {builder.Port}, 数据库: {builder.Database}, 用户: {builder.UserID}");
-                
-                // 检查 DNS 解析
-                try
+                using (var connection = new MySqlConnection(_connectionString))
                 {
-                    LogToFile("尝试解析服务器地址...");
-                    var addresses = System.Net.Dns.GetHostAddresses(builder.Server);
-                    foreach (var address in addresses)
-                    {
-                        LogToFile($"解析到的IP地址: {address}");
-                    }
-                }
-                catch (Exception dnsEx)
-                {
-                    LogToFile($"DNS解析失败: {dnsEx.Message}");
-                }
-
-                // 先尝试 ping 服务器
-                try
-                {
-                    using (var ping = new System.Net.NetworkInformation.Ping())
-                    {
-                        LogToFile("尝试 ping 服务器...");
-                        var reply = await ping.SendPingAsync(builder.Server, 5000);
-                        LogToFile($"Ping 服务器结果: {reply.Status}, 延迟: {reply.RoundtripTime}ms");
-                        
-                        if (reply.Status != System.Net.NetworkInformation.IPStatus.Success)
-                        {
-                            LogToFile("服务器 ping 失败，可能是网络问题");
-                            return false;
-                        }
-                    }
-                }
-                catch (Exception pingEx)
-                {
-                    LogToFile($"Ping 服务器失败: {pingEx.Message}");
-                    return false;
-                }
-
-                // 尝试 telnet 测试端口
-                try
-                {
-                    using (var tcpClient = new System.Net.Sockets.TcpClient())
-                    {
-                        LogToFile($"尝试连接端口 {builder.Port}...");
-                        var connectTask = tcpClient.ConnectAsync(builder.Server, (int)builder.Port);
-                        if (await Task.WhenAny(connectTask, Task.Delay(5000)) != connectTask)
-                        {
-                            LogToFile("端口连接超时");
-                            return false;
-                        }
-                        await connectTask;
-                        LogToFile("端口连接成功");
-                        
-                        // 检查连接状态
-                        LogToFile($"TCP连接状态: {tcpClient.Connected}");
-                        LogToFile($"本地端点: {tcpClient.Client.LocalEndPoint}");
-                        LogToFile($"远程端点: {tcpClient.Client.RemoteEndPoint}");
-                        
-                        tcpClient.Close();
-                    }
-                }
-                catch (Exception telnetEx)
-                {
-                    LogToFile($"端口连接失败: {telnetEx.Message}");
-                    return false;
-                }
-
-                // 尝试数据库连接
-                try
-                {
-                    LogToFile("正在尝试数据库连接...");
-                    connection = new MySqlConnection(_connectionString);
-                    
-                    // 使用同步方式连接，但带超时控制
-                    using (var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(10)))
-                    {
-                        var connectTask = Task.Run(() => 
-                        {
-                            try 
-                            {
-                                LogToFile("开始打开连接...");
-                                LogToFile($"连接字符串: {_connectionString}");
-                                connection.Open();
-                                LogToFile("连接已打开");
-                                
-                                // 获取连接信息
-                                using (var command = connection.CreateCommand())
-                                {
-                                    command.CommandText = "SELECT CONNECTION_ID(), VERSION(), DATABASE(), USER()";
-                                    using (var reader = command.ExecuteReader())
-                                    {
-                                        if (reader.Read())
-                                        {
-                                            LogToFile($"连接ID: {reader.GetInt32(0)}");
-                                            LogToFile($"MySQL版本: {reader.GetString(1)}");
-                                            LogToFile($"当前数据库: {reader.GetString(2)}");
-                                            LogToFile($"当前用户: {reader.GetString(3)}");
-                                        }
-                                    }
-                                }
-                                
+                    await connection.OpenAsync(cancellationToken);
+                    LogDatabaseOperationEnd(operation, true);
                                 return true;
                             }
-                            catch (Exception ex)
-                            {
-                                LogToFile($"连接过程中发生错误: {ex.Message}");
-                                if (ex is MySqlException mySqlEx)
-                                {
-                                    LogToFile($"MySQL 错误代码: {mySqlEx.Number}");
-                                    LogToFile($"MySQL 错误消息: {mySqlEx.Message}");
-                                    LogToFile($"MySQL 错误详情: {mySqlEx}");
-                                    
-                                    // 检查是否是特定错误
-                                    switch (mySqlEx.Number)
-                                    {
-                                        case 1045: // Access denied
-                                            LogToFile("错误：访问被拒绝，请检查用户名和密码");
-                                            break;
-                                        case 1042: // Can't get hostname
-                                            LogToFile("错误：无法获取主机名");
-                                            break;
-                                        case 2003: // Can't connect to server
-                                            LogToFile("错误：无法连接到服务器，请检查服务器地址和端口");
-                                            break;
-                                        case 2013: // Lost connection
-                                            LogToFile("错误：连接丢失");
-                                            break;
-                                        case 2026: // SSL connection error
-                                            LogToFile("错误：SSL连接错误");
-                                            break;
-                                    }
-                                }
+            }
+            catch (OperationCanceledException)
+            {
+                LogManager.Log("Database", "数据库连接测试被取消");
+                LogDatabaseOperationEnd(operation, false);
                                 throw;
-                            }
-                        }, cts.Token);
-
-                        if (await Task.WhenAny(connectTask, Task.Delay(10000, cts.Token)) != connectTask)
-                        {
-                            LogToFile("数据库连接超时");
-                            throw new TimeoutException("数据库连接超时");
-                        }
-
-                        await connectTask;
-                    }
-
-                    LogToFile("数据库连接成功");
-                    return true;
-                }
-                catch (MySqlException ex)
-                {
-                    LogToFile($"MySQL 错误: {ex.Message}");
-                    LogToFile($"错误代码: {ex.Number}");
-                    LogToFile($"错误详情: {ex}");
-                    return false;
                 }
                 catch (Exception ex)
                 {
-                    LogToFile($"连接测试时发生错误: {ex.Message}");
-                    LogToFile($"错误详情: {ex}");
+                LogDatabaseOperationError(operation, ex);
+                LogDatabaseOperationEnd(operation, false);
                     return false;
                 }
-            }
-            finally
-            {
-                if (connection != null)
-                {
-                    try
-                    {
-                        if (connection.State != System.Data.ConnectionState.Closed)
-                        {
-                            LogToFile("正在关闭连接...");
-                            connection.Close();
-                            LogToFile("连接已关闭");
-                        }
-                        connection.Dispose();
-                        LogToFile("连接已释放");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogToFile($"关闭连接时发生错误: {ex.Message}");
-                    }
-                }
-            }
         }
 
-        public async Task<bool> ValidateUserAsync(string username, string password)
+        public async Task<bool> ValidateUserAsync(string username, string password, CancellationToken cancellationToken = default)
         {
-            LogToFile($"开始验证用户: {username}");
+            LogManager.Log("Database", $"开始验证用户: {username}");
             try
             {
                 await EnsureConnectionStringLoadedAsync();
-                LogToFile("连接字符串已加载，准备连接数据库");
+                LogManager.Log("Database", "连接字符串已加载，准备连接数据库");
 
                 using var connection = new MySqlConnection(_connectionString);
-                LogToFile("正在打开数据库连接...");
-                await connection.OpenAsync();
-                LogToFile("数据库连接已打开");
+                LogManager.Log("Database", "正在打开数据库连接...");
+                await connection.OpenAsync(cancellationToken);
+                LogManager.Log("Database", "数据库连接已打开");
 
                 using var cmd = new MySqlCommand(
                     "SELECT password_hash FROM users WHERE username = @username",
                     connection);
                 cmd.Parameters.AddWithValue("@username", username);
-                LogToFile($"执行查询: SELECT password_hash FROM users WHERE username = '{username}'");
+                LogManager.Log("Database", $"执行查询: SELECT password_hash FROM users WHERE username = '{username}'");
 
-                var result = await cmd.ExecuteScalarAsync();
+                var result = await cmd.ExecuteScalarAsync(cancellationToken);
                 if (result == null)
                 {
-                    LogToFile($"用户 {username} 不存在");
+                    LogManager.Log("Database", $"用户 {username} 不存在");
                     return false;
                 }
 
                 var storedHash = result.ToString();
                 var inputHash = HashPassword(password);
-                LogToFile($"密码验证: 存储的哈希值 = {storedHash}, 输入的哈希值 = {inputHash}");
+                LogManager.Log("Database", $"密码验证: 存储的哈希值 = {storedHash}, 输入的哈希值 = {inputHash}");
                 
                 var isValid = storedHash == inputHash;
-                LogToFile($"密码验证结果: {(isValid ? "成功" : "失败")}");
+                LogManager.Log("Database", $"密码验证结果: {(isValid ? "成功" : "失败")}");
                 return isValid;
             }
-            catch (MySqlException ex)
+            catch (OperationCanceledException)
             {
-                LogToFile($"MySQL 错误: {ex.Message}");
-                LogToFile($"错误代码: {ex.Number}");
-                LogToFile($"错误详情: {ex}");
+                LogManager.Log("Database", "用户验证操作被取消");
                 throw;
             }
             catch (Exception ex)
             {
-                LogToFile($"验证用户时发生错误: {ex.Message}");
-                LogToFile($"错误详情: {ex}");
+                LogManager.LogException("Database", ex, "验证用户时发生错误");
                 throw;
             }
         }
 
-        public async Task<bool> CreateUserAsync(string username, string password)
+        public async Task<bool> CreateUserAsync(string username, string password, CancellationToken cancellationToken = default)
         {
             try
             {
                 using var connection = new MySqlConnection(_connectionString);
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
 
                 // 检查用户名是否已存在
                 using var checkCmd = new MySqlCommand(
@@ -355,7 +246,7 @@ namespace TCClient.Services
                     connection);
                 checkCmd.Parameters.AddWithValue("@username", username);
 
-                var count = Convert.ToInt32(await checkCmd.ExecuteScalarAsync());
+                var count = Convert.ToInt32(await checkCmd.ExecuteScalarAsync(cancellationToken));
                 if (count > 0)
                 {
                     return false;
@@ -368,207 +259,284 @@ namespace TCClient.Services
                 cmd.Parameters.AddWithValue("@username", username);
                 cmd.Parameters.AddWithValue("@password_hash", HashPassword(password));
 
-                await cmd.ExecuteNonQueryAsync();
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"创建用户失败：{ex}");
+                LogManager.LogException("Database", ex, "创建用户失败");
                 throw;
             }
         }
 
         // 账户相关方法
-        public async Task<List<Account>> GetUserAccountsAsync(string username)
+        public async Task<List<Account>> GetUserAccountsAsync(string username, CancellationToken cancellationToken = default)
         {
             var accounts = new List<Account>();
+            
+            try
+            {
+                LogManager.Log("Database", $"开始获取用户 {username} 的账户信息");
+                await EnsureConnectionStringLoadedAsync();
+                
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
+                        // 修改SQL查询，使其匹配实际的数据库表结构
                     command.CommandText = @"
-                        SELECT a.* FROM trading_accounts a
+                            SELECT a.id, a.account_name, a.equity, a.initial_equity, 
+                                   a.opportunity_count, a.is_active, a.create_time, 
+                                   a.update_time, ua.is_default
+                            FROM trading_accounts a
                         INNER JOIN user_trading_accounts ua ON a.id = ua.account_id
                         INNER JOIN users u ON ua.user_id = u.id
                         WHERE u.username = @username AND a.is_active = 1";
 
                     command.Parameters.AddWithValue("@username", username);
+                        LogManager.Log("Database", $"执行SQL: {command.CommandText}");
 
-                    using (var reader = await command.ExecuteReaderAsync())
+                    using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                     {
-                        while (await reader.ReadAsync())
+                        while (await reader.ReadAsync(cancellationToken))
                         {
-                            accounts.Add(new Account
+                                // 创建Account对象，仅设置存在的字段
+                                var account = new Account
                             {
                                 Id = reader.GetInt32("id"),
                                 AccountName = reader.GetString("account_name"),
-                                Type = reader.GetString("type"),
-                                Balance = reader.GetDecimal("balance"),
+                                    // 使用常量值或默认值替代不存在的字段
+                                    Type = "交易账户", // 固定值
+                                    Balance = reader.GetDecimal("equity"), // 用权益替代余额
                                 Equity = reader.GetDecimal("equity"),
-                                Margin = reader.GetDecimal("margin"),
-                                RiskRatio = reader.GetDecimal("risk_ratio"),
+                                    Margin = 0, // 默认值
+                                    RiskRatio = 0, // 默认值
                                 CreateTime = reader.GetDateTime("create_time"),
-                                LastLoginTime = reader.IsDBNull("last_login_time") ? null : (DateTime?)reader.GetDateTime("last_login_time"),
+                                    LastLoginTime = null, // 不存在该字段
                                 IsActive = reader.GetBoolean("is_active"),
-                                Description = reader.IsDBNull("description") ? null : reader.GetString("description")
-                            });
+                                    Description = null // 不存在该字段
+                                };
+                                
+                                accounts.Add(account);
+                                LogManager.Log("Database", $"已添加账户: ID={account.Id}, 名称={account.AccountName}");
+                            }
                         }
                     }
                 }
+                
+                LogManager.Log("Database", $"成功获取用户账户信息，共 {accounts.Count} 个账户");
             }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取用户 {username} 的账户信息失败");
+                // 继续抛出异常让调用者处理
+                throw;
+            }
+            
             return accounts;
         }
 
-        public async Task<Account> GetAccountByIdAsync(int accountId)
+        public async Task<Account> GetAccountByIdAsync(int accountId, CancellationToken cancellationToken = default)
         {
+            try
+            {
+                LogManager.Log("Database", $"开始获取账户ID {accountId} 的信息");
+                await EnsureConnectionStringLoadedAsync();
+                
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
-                    command.CommandText = "SELECT * FROM trading_accounts WHERE id = @id";
+                        // 修改SQL查询，使其匹配实际的数据库表结构
+                        command.CommandText = @"
+                            SELECT id, account_name, equity, initial_equity, 
+                                   opportunity_count, is_active, create_time, update_time
+                            FROM trading_accounts 
+                            WHERE id = @id";
+                            
                     command.Parameters.AddWithValue("@id", accountId);
+                        LogManager.Log("Database", $"执行SQL: {command.CommandText}");
 
-                    using (var reader = await command.ExecuteReaderAsync())
+                    using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                     {
-                        if (await reader.ReadAsync())
+                        if (await reader.ReadAsync(cancellationToken))
                         {
-                            return new Account
+                                // 创建Account对象，仅设置存在的字段
+                                var account = new Account
                             {
                                 Id = reader.GetInt32("id"),
                                 AccountName = reader.GetString("account_name"),
-                                Type = reader.GetString("type"),
-                                Balance = reader.GetDecimal("balance"),
+                                    // 使用常量值或默认值替代不存在的字段
+                                    Type = "交易账户", // 固定值
+                                    Balance = reader.GetDecimal("equity"), // 用权益替代余额
                                 Equity = reader.GetDecimal("equity"),
-                                Margin = reader.GetDecimal("margin"),
-                                RiskRatio = reader.GetDecimal("risk_ratio"),
+                                    Margin = 0, // 默认值
+                                    RiskRatio = 0, // 默认值
                                 CreateTime = reader.GetDateTime("create_time"),
-                                LastLoginTime = reader.IsDBNull("last_login_time") ? null : (DateTime?)reader.GetDateTime("last_login_time"),
+                                    LastLoginTime = null, // 不存在该字段
                                 IsActive = reader.GetBoolean("is_active"),
-                                Description = reader.IsDBNull("description") ? null : reader.GetString("description")
-                            };
+                                    Description = null // 不存在该字段
+                                };
+                                
+                                LogManager.Log("Database", $"已获取账户: ID={account.Id}, 名称={account.AccountName}");
+                                return account;
+                            }
                         }
                     }
                 }
+                
+                LogManager.Log("Database", $"未找到ID为 {accountId} 的账户");
             }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取账户ID {accountId} 的信息失败");
+                // 继续抛出异常让调用者处理
+                throw;
+            }
+            
             return null;
         }
 
-        public async Task<bool> CreateAccountAsync(Account account)
+        public async Task<bool> CreateAccountAsync(Account account, CancellationToken cancellationToken = default)
         {
+            try
+            {
+                LogManager.Log("Database", $"开始创建账户: {account.AccountName}");
+                await EnsureConnectionStringLoadedAsync();
+                
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
-                using (var transaction = await connection.BeginTransactionAsync())
+                await connection.OpenAsync(cancellationToken);
+                using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
                 {
                     try
                     {
                         using (var command = connection.CreateCommand())
                         {
                             command.Transaction = transaction;
+                                // 修改SQL插入语句，使其匹配实际的数据库表结构
                             command.CommandText = @"
                                 INSERT INTO trading_accounts (
-                                    account_name, type, balance, equity, margin, risk_ratio,
-                                    create_time, is_active, description
+                                        account_name, binance_account_id, api_key, api_secret,
+                                        equity, initial_equity, opportunity_count, status, is_active,
+                                        create_time, update_time
                                 ) VALUES (
-                                    @account_name, @type, @balance, @equity, @margin, @risk_ratio,
-                                    @create_time, @is_active, @description
+                                        @account_name, @binance_account_id, @api_key, @api_secret,
+                                        @equity, @initial_equity, @opportunity_count, @status, @is_active,
+                                        @create_time, @update_time
                                 )";
 
                             command.Parameters.AddWithValue("@account_name", account.AccountName);
-                            command.Parameters.AddWithValue("@type", account.Type);
-                            command.Parameters.AddWithValue("@balance", account.Balance);
+                                command.Parameters.AddWithValue("@binance_account_id", $"default_{Guid.NewGuid().ToString("N").Substring(0, 8)}");
+                                command.Parameters.AddWithValue("@api_key", string.Empty);
+                                command.Parameters.AddWithValue("@api_secret", string.Empty);
                             command.Parameters.AddWithValue("@equity", account.Equity);
-                            command.Parameters.AddWithValue("@margin", account.Margin);
-                            command.Parameters.AddWithValue("@risk_ratio", account.RiskRatio);
+                                command.Parameters.AddWithValue("@initial_equity", account.Equity); // 初始权益等于当前权益
+                                command.Parameters.AddWithValue("@opportunity_count", 10); // 默认值
+                                command.Parameters.AddWithValue("@status", 1);
+                                command.Parameters.AddWithValue("@is_active", account.IsActive ? 1 : 0);
                             command.Parameters.AddWithValue("@create_time", DateTime.Now);
-                            command.Parameters.AddWithValue("@is_active", true);
-                            command.Parameters.AddWithValue("@description", (object)account.Description ?? DBNull.Value);
+                                command.Parameters.AddWithValue("@update_time", DateTime.Now);
 
-                            await command.ExecuteNonQueryAsync();
+                                LogManager.Log("Database", $"执行SQL: {command.CommandText}");
+                            await command.ExecuteNonQueryAsync(cancellationToken);
                         }
 
-                        await transaction.CommitAsync();
+                        await transaction.CommitAsync(cancellationToken);
+                            LogManager.Log("Database", $"账户 {account.AccountName} 创建成功");
                         return true;
                     }
-                    catch
+                        catch (Exception ex)
                     {
-                        await transaction.RollbackAsync();
+                        await transaction.RollbackAsync(cancellationToken);
+                            LogManager.LogException("Database", ex, $"创建账户 {account.AccountName} 时发生错误，事务已回滚");
                         throw;
                     }
                 }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"创建账户 {account.AccountName} 失败");
+                throw;
             }
         }
 
-        public async Task<bool> UpdateAccountAsync(Account account)
+        public async Task<bool> UpdateAccountAsync(Account account, CancellationToken cancellationToken = default)
         {
+            try
+            {
+                LogManager.Log("Database", $"开始更新账户ID {account.Id}: {account.AccountName}");
+                await EnsureConnectionStringLoadedAsync();
+                
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
+                        // 修改SQL更新语句，使其匹配实际的数据库表结构
                     command.CommandText = @"
                         UPDATE trading_accounts SET
                             account_name = @account_name,
-                            type = @type,
-                            balance = @balance,
                             equity = @equity,
-                            margin = @margin,
-                            risk_ratio = @risk_ratio,
-                            last_login_time = @last_login_time,
                             is_active = @is_active,
-                            description = @description
+                                update_time = @update_time
                         WHERE id = @id";
 
                     command.Parameters.AddWithValue("@id", account.Id);
                     command.Parameters.AddWithValue("@account_name", account.AccountName);
-                    command.Parameters.AddWithValue("@type", account.Type);
-                    command.Parameters.AddWithValue("@balance", account.Balance);
                     command.Parameters.AddWithValue("@equity", account.Equity);
-                    command.Parameters.AddWithValue("@margin", account.Margin);
-                    command.Parameters.AddWithValue("@risk_ratio", account.RiskRatio);
-                    command.Parameters.AddWithValue("@last_login_time", (object)account.LastLoginTime ?? DBNull.Value);
-                    command.Parameters.AddWithValue("@is_active", account.IsActive);
-                    command.Parameters.AddWithValue("@description", (object)account.Description ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@is_active", account.IsActive ? 1 : 0);
+                        command.Parameters.AddWithValue("@update_time", DateTime.Now);
 
-                    var result = await command.ExecuteNonQueryAsync();
+                        LogManager.Log("Database", $"执行SQL: {command.CommandText}");
+                    var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                        
+                        LogManager.Log("Database", $"账户更新结果: 影响行数={result}");
                     return result > 0;
                 }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"更新账户ID {account.Id} 失败");
+                throw;
             }
         }
 
-        public async Task<bool> DeleteAccountAsync(int accountId)
+        public async Task<bool> DeleteAccountAsync(int accountId, CancellationToken cancellationToken = default)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = "UPDATE trading_accounts SET is_active = 0 WHERE id = @id";
                     command.Parameters.AddWithValue("@id", accountId);
 
-                    var result = await command.ExecuteNonQueryAsync();
+                    var result = await command.ExecuteNonQueryAsync(cancellationToken);
                     return result > 0;
                 }
             }
         }
 
         // 持仓相关方法
-        public async Task<List<Position>> GetPositionsAsync(int accountId)
+        public async Task<List<Position>> GetPositionsAsync(int accountId, CancellationToken cancellationToken = default)
         {
             var positions = new List<Position>();
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = "SELECT * FROM positions WHERE account_id = @account_id AND status = 'active'";
                     command.Parameters.AddWithValue("@account_id", accountId);
 
-                    using (var reader = await command.ExecuteReaderAsync())
+                    using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                     {
-                        while (await reader.ReadAsync())
+                        while (await reader.ReadAsync(cancellationToken))
                         {
                             positions.Add(new Position
                             {
@@ -593,19 +561,19 @@ namespace TCClient.Services
             return positions;
         }
 
-        public async Task<Position> GetPositionByIdAsync(int positionId)
+        public async Task<Position> GetPositionByIdAsync(int positionId, CancellationToken cancellationToken = default)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = "SELECT * FROM positions WHERE id = @id";
                     command.Parameters.AddWithValue("@id", positionId);
 
-                    using (var reader = await command.ExecuteReaderAsync())
+                    using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                     {
-                        if (await reader.ReadAsync())
+                        if (await reader.ReadAsync(cancellationToken))
                         {
                             return new Position
                             {
@@ -630,12 +598,12 @@ namespace TCClient.Services
             return null;
         }
 
-        public async Task<bool> CreatePositionAsync(Position position)
+        public async Task<bool> CreatePositionAsync(Position position, CancellationToken cancellationToken = default)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
-                using (var transaction = await connection.BeginTransactionAsync())
+                await connection.OpenAsync(cancellationToken);
+                using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
                 {
                     try
                     {
@@ -665,26 +633,26 @@ namespace TCClient.Services
                             command.Parameters.AddWithValue("@open_time", DateTime.Now);
                             command.Parameters.AddWithValue("@status", "active");
 
-                            await command.ExecuteNonQueryAsync();
+                            await command.ExecuteNonQueryAsync(cancellationToken);
                         }
 
-                        await transaction.CommitAsync();
+                        await transaction.CommitAsync(cancellationToken);
                         return true;
                     }
                     catch
                     {
-                        await transaction.RollbackAsync();
+                        await transaction.RollbackAsync(cancellationToken);
                         throw;
                     }
                 }
             }
         }
 
-        public async Task<bool> UpdatePositionAsync(Position position)
+        public async Task<bool> UpdatePositionAsync(Position position, CancellationToken cancellationToken = default)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = @"
@@ -703,17 +671,17 @@ namespace TCClient.Services
                     command.Parameters.AddWithValue("@take_profit", position.TakeProfit);
                     command.Parameters.AddWithValue("@status", position.Status);
 
-                    var result = await command.ExecuteNonQueryAsync();
+                    var result = await command.ExecuteNonQueryAsync(cancellationToken);
                     return result > 0;
                 }
             }
         }
 
-        public async Task<bool> ClosePositionAsync(int positionId)
+        public async Task<bool> ClosePositionAsync(int positionId, CancellationToken cancellationToken = default)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
+                await connection.OpenAsync(cancellationToken);
                 using (var command = connection.CreateCommand())
                 {
                     command.CommandText = @"
@@ -725,7 +693,7 @@ namespace TCClient.Services
                     command.Parameters.AddWithValue("@id", positionId);
                     command.Parameters.AddWithValue("@close_time", DateTime.Now);
 
-                    var result = await command.ExecuteNonQueryAsync();
+                    var result = await command.ExecuteNonQueryAsync(cancellationToken);
                     return result > 0;
                 }
             }
@@ -1085,30 +1053,34 @@ namespace TCClient.Services
         }
 
         // IUserService 接口实现
-        public async Task<IEnumerable<TradingAccount>> GetTradingAccountsAsync()
+        public async Task<IEnumerable<TradingAccount>> GetTradingAccountsAsync(CancellationToken cancellationToken = default)
         {
             var accounts = new List<TradingAccount>();
-            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
-
-                var query = @"
-                    SELECT id, name, type, status, create_time, update_time, 
-                           description, balance, available_balance, risk_limit, current_risk
-                    FROM trading_accounts
-                    ORDER BY create_time DESC;";
-
-                using (var command = new MySqlCommand(query, connection))
-                {
-                    using (var reader = await command.ExecuteReaderAsync())
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
                     {
-                        while (await reader.ReadAsync())
+                        command.CommandText = @"
+                            SELECT t.*, COALESCE(uta.is_default, 0) as is_default
+                            FROM trading_accounts t
+                            LEFT JOIN user_trading_accounts uta ON t.id = uta.account_id AND uta.user_id = @user_id
+                            WHERE t.is_active = 1
+                            ORDER BY t.create_time DESC";
+
+                        command.Parameters.AddWithValue("@user_id", AppSession.CurrentUserId);
+
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                    {
+                            while (await reader.ReadAsync(cancellationToken))
                         {
                             accounts.Add(new TradingAccount
                             {
                                 Id = reader.GetInt64("id"),
-                                AccountName = reader.GetString("name"),
+                                    AccountName = reader.GetString("account_name"),
                                 BinanceAccountId = reader.GetString("binance_account_id"),
                                 ApiKey = reader.GetString("api_key"),
                                 ApiSecret = reader.GetString("api_secret"),
@@ -1120,35 +1092,107 @@ namespace TCClient.Services
                                 IsActive = reader.GetInt32("is_active"),
                                 CreateTime = reader.GetDateTime("create_time"),
                                 UpdateTime = reader.GetDateTime("update_time"),
-                                // IsDefault 由业务逻辑赋值
+                                    IsDefault = reader.GetInt32("is_default"),
+                                    IsDefaultAccount = reader.GetInt32("is_default") == 1
                             });
                         }
                     }
                 }
             }
-
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取交易账户列表失败");
+                throw;
+            }
             return accounts;
         }
 
-        public async Task<bool> CreateTradingAccountAsync(TradingAccount account)
+        public async Task<TradingAccount> GetTradingAccountByIdAsync(long accountId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT t.*, COALESCE(uta.is_default, 0) as is_default
+                            FROM trading_accounts t
+                            LEFT JOIN user_trading_accounts uta ON t.id = uta.account_id AND uta.user_id = @user_id
+                            WHERE t.id = @account_id AND t.is_active = 1
+                            LIMIT 1";
+
+                        command.Parameters.AddWithValue("@user_id", AppSession.CurrentUserId);
+                        command.Parameters.AddWithValue("@account_id", accountId);
+
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                return new TradingAccount
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    AccountName = reader.GetString("account_name"),
+                                    BinanceAccountId = reader.GetString("binance_account_id"),
+                                    ApiKey = reader.GetString("api_key"),
+                                    ApiSecret = reader.GetString("api_secret"),
+                                    ApiPassphrase = reader.IsDBNull(reader.GetOrdinal("api_passphrase")) ? null : reader.GetString("api_passphrase"),
+                                    Equity = reader.GetDecimal("equity"),
+                                    InitialEquity = reader.GetDecimal("initial_equity"),
+                                    OpportunityCount = reader.GetInt32("opportunity_count"),
+                                    Status = reader.GetInt32("status"),
+                                    IsActive = reader.GetInt32("is_active"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    UpdateTime = reader.GetDateTime("update_time"),
+                                    IsDefault = reader.GetInt32("is_default"),
+                                    IsDefaultAccount = reader.GetInt32("is_default") == 1
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取交易账户失败");
+                throw;
+            }
+            return null;
+        }
+
+        public async Task<bool> CreateTradingAccountAsync(TradingAccount account, CancellationToken cancellationToken = default)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
-
+                await connection.OpenAsync(cancellationToken);
+                using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+                {
+                    try
+                    {
+                        // 插入交易账户
                 var query = @"
                     INSERT INTO trading_accounts 
-                    (account_name, binance_account_id, api_key, api_secret, api_passphrase, equity, initial_equity, opportunity_count, status, is_active, create_time, update_time)
+                            (account_name, binance_account_id, api_key, api_secret, api_passphrase,
+                             equity, initial_equity, opportunity_count, status, is_active,
+                             create_time, update_time, is_default)
                     VALUES 
-                    (@account_name, @binance_account_id, @api_key, @api_secret, @api_passphrase, @equity, @initial_equity, @opportunity_count, @status, @is_active, @create_time, @update_time);";
+                            (@account_name, @binance_account_id, @api_key, @api_secret, @api_passphrase,
+                             @equity, @initial_equity, @opportunity_count, @status, @is_active,
+                             @create_time, @update_time, @is_default);
+                            SELECT LAST_INSERT_ID();";
 
+                        long accountId;
                 using (var command = new MySqlCommand(query, connection))
                 {
+                            command.Transaction = transaction;
                     command.Parameters.AddWithValue("@account_name", account.AccountName);
-                    command.Parameters.AddWithValue("@binance_account_id", account.BinanceAccountId ?? "");
-                    command.Parameters.AddWithValue("@api_key", account.ApiKey ?? "");
-                    command.Parameters.AddWithValue("@api_secret", account.ApiSecret ?? "");
-                    command.Parameters.AddWithValue("@api_passphrase", account.ApiPassphrase ?? "");
+                            command.Parameters.AddWithValue("@binance_account_id", (object)account.BinanceAccountId ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@api_key", (object)account.ApiKey ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@api_secret", (object)account.ApiSecret ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@api_passphrase", (object)account.ApiPassphrase ?? DBNull.Value);
                     command.Parameters.AddWithValue("@equity", account.Equity);
                     command.Parameters.AddWithValue("@initial_equity", account.InitialEquity);
                     command.Parameters.AddWithValue("@opportunity_count", account.OpportunityCount);
@@ -1156,19 +1200,58 @@ namespace TCClient.Services
                     command.Parameters.AddWithValue("@is_active", account.IsActive);
                     command.Parameters.AddWithValue("@create_time", DateTime.Now);
                     command.Parameters.AddWithValue("@update_time", DateTime.Now);
+                            command.Parameters.AddWithValue("@is_default", account.IsDefault);
 
-                    var result = await command.ExecuteNonQueryAsync();
-                    return result > 0;
+                            accountId = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
+                        }
+
+                        // 添加用户账户关联
+                        if (accountId > 0 && AppSession.CurrentUserId > 0)
+                        {
+                            if (account.IsDefault == 1)
+                            {
+                                // 先将该用户其它账户的is_default全部置为0
+                                using var clearCmd = connection.CreateCommand();
+                                clearCmd.Transaction = transaction;
+                                clearCmd.CommandText = "UPDATE user_trading_accounts SET is_default=0 WHERE user_id=@userId";
+                                clearCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                await clearCmd.ExecuteNonQueryAsync(cancellationToken);
+                            }
+
+                            // 插入新关联
+                            using var cmd = connection.CreateCommand();
+                            cmd.Transaction = transaction;
+                            cmd.CommandText = @"INSERT INTO user_trading_accounts (user_id, account_id, is_default, create_time, update_time) 
+                                              VALUES (@userId, @accountId, @isDefault, NOW(), NOW())";
+                            cmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                            cmd.Parameters.AddWithValue("@accountId", accountId);
+                            cmd.Parameters.AddWithValue("@isDefault", account.IsDefault);
+                            await cmd.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                        await transaction.CommitAsync(cancellationToken);
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogManager.LogException("Database", ex, "创建交易账户失败");
+                        await transaction.RollbackAsync(cancellationToken);
+                        throw;
+                    }
                 }
             }
         }
 
-        public async Task<bool> UpdateTradingAccountAsync(TradingAccount account)
+        public async Task<bool> UpdateTradingAccountAsync(TradingAccount account, CancellationToken cancellationToken = default)
         {
             using (var connection = new MySqlConnection(_connectionString))
             {
-                await connection.OpenAsync();
-
+                await connection.OpenAsync(cancellationToken);
+                using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+                {
+                    try
+                    {
+                        // 更新交易账户
                 var query = @"
                     UPDATE trading_accounts 
                     SET account_name = @account_name,
@@ -1181,45 +1264,132 @@ namespace TCClient.Services
                         opportunity_count = @opportunity_count,
                         status = @status,
                         is_active = @is_active,
-                        update_time = @update_time
+                                update_time = @update_time,
+                                is_default = @is_default
                     WHERE id = @id;";
 
                 using (var command = new MySqlCommand(query, connection))
                 {
+                            command.Transaction = transaction;
                     command.Parameters.AddWithValue("@id", account.Id);
                     command.Parameters.AddWithValue("@account_name", account.AccountName);
-                    command.Parameters.AddWithValue("@binance_account_id", account.BinanceAccountId ?? "");
-                    command.Parameters.AddWithValue("@api_key", account.ApiKey ?? "");
-                    command.Parameters.AddWithValue("@api_secret", account.ApiSecret ?? "");
-                    command.Parameters.AddWithValue("@api_passphrase", account.ApiPassphrase ?? "");
+                            command.Parameters.AddWithValue("@binance_account_id", (object)account.BinanceAccountId ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@api_key", (object)account.ApiKey ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@api_secret", (object)account.ApiSecret ?? DBNull.Value);
+                            command.Parameters.AddWithValue("@api_passphrase", (object)account.ApiPassphrase ?? DBNull.Value);
                     command.Parameters.AddWithValue("@equity", account.Equity);
                     command.Parameters.AddWithValue("@initial_equity", account.InitialEquity);
                     command.Parameters.AddWithValue("@opportunity_count", account.OpportunityCount);
                     command.Parameters.AddWithValue("@status", account.Status);
                     command.Parameters.AddWithValue("@is_active", account.IsActive);
                     command.Parameters.AddWithValue("@update_time", DateTime.Now);
+                            command.Parameters.AddWithValue("@is_default", account.IsDefault);
 
-                    var result = await command.ExecuteNonQueryAsync();
-                    return result > 0;
+                            var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                            if (result <= 0)
+                            {
+                                await transaction.RollbackAsync(cancellationToken);
+                                return false;
+            }
+        }
+
+                        // 更新用户账户关联
+                        if (AppSession.CurrentUserId > 0)
+                        {
+                            // 检查是否已存在关联
+                            using (var checkCmd = connection.CreateCommand())
+                            {
+                                checkCmd.Transaction = transaction;
+                                checkCmd.CommandText = "SELECT COUNT(*) FROM user_trading_accounts WHERE user_id = @userId AND account_id = @accountId";
+                                checkCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                checkCmd.Parameters.AddWithValue("@accountId", account.Id);
+                                var exists = Convert.ToInt32(await checkCmd.ExecuteScalarAsync(cancellationToken)) > 0;
+
+                                if (exists)
+                                {
+                                    // 如果设置为默认账户，先清除其他默认账户
+                                    if (account.IsDefault == 1)
+        {
+                                        using var clearCmd = connection.CreateCommand();
+                                        clearCmd.Transaction = transaction;
+                                        clearCmd.CommandText = "UPDATE user_trading_accounts SET is_default=0 WHERE user_id=@userId";
+                                        clearCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                        await clearCmd.ExecuteNonQueryAsync(cancellationToken);
+                                    }
+
+                                    // 更新现有关联
+                                    using var updateCmd = connection.CreateCommand();
+                                    updateCmd.Transaction = transaction;
+                                    updateCmd.CommandText = "UPDATE user_trading_accounts SET is_default=@isDefault, update_time=NOW() WHERE user_id=@userId AND account_id=@accountId";
+                                    updateCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                    updateCmd.Parameters.AddWithValue("@accountId", account.Id);
+                                    updateCmd.Parameters.AddWithValue("@isDefault", account.IsDefault);
+                                    await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+                                }
+                                else
+                                {
+                                    // 如果设置为默认账户，先清除其他默认账户
+                                    if (account.IsDefault == 1)
+                                    {
+                                        using var clearCmd = connection.CreateCommand();
+                                        clearCmd.Transaction = transaction;
+                                        clearCmd.CommandText = "UPDATE user_trading_accounts SET is_default=0 WHERE user_id=@userId";
+                                        clearCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                        await clearCmd.ExecuteNonQueryAsync(cancellationToken);
+                                    }
+
+                                    // 插入新关联
+                                    using var insertCmd = connection.CreateCommand();
+                                    insertCmd.Transaction = transaction;
+                                    insertCmd.CommandText = @"INSERT INTO user_trading_accounts (user_id, account_id, is_default, create_time, update_time) 
+                                                             VALUES (@userId, @accountId, @isDefault, NOW(), NOW())";
+                                    insertCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                    insertCmd.Parameters.AddWithValue("@accountId", account.Id);
+                                    insertCmd.Parameters.AddWithValue("@isDefault", account.IsDefault);
+                                    await insertCmd.ExecuteNonQueryAsync(cancellationToken);
+                                }
+                            }
+                        }
+
+                        await transaction.CommitAsync(cancellationToken);
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogManager.LogException("Database", ex, "更新交易账户失败");
+                        await transaction.RollbackAsync(cancellationToken);
+                        throw;
+                    }
                 }
             }
         }
 
-        public async Task<bool> DeleteTradingAccountAsync(long accountId)
+        public async Task<bool> DeleteTradingAccountAsync(int accountId, CancellationToken cancellationToken = default)
         {
-            using (var connection = new MySqlConnection(_connectionString))
+            return await DeleteTradingAccountAsync((long)accountId, cancellationToken);
+        }
+
+        public async Task<bool> DeleteTradingAccountAsync(long accountId, CancellationToken cancellationToken = default)
+        {
+            try
             {
-                await connection.OpenAsync();
-
-                var query = "DELETE FROM trading_accounts WHERE id = @id;";
-
-                using (var command = new MySqlCommand(query, connection))
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
                 {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "DELETE FROM trading_accounts WHERE id = @id";
                     command.Parameters.AddWithValue("@id", accountId);
-
-                    var result = await command.ExecuteNonQueryAsync();
+                        var result = await command.ExecuteNonQueryAsync(cancellationToken);
                     return result > 0;
                 }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "删除交易账户失败");
+                throw;
             }
         }
 
@@ -1272,11 +1442,11 @@ namespace TCClient.Services
                     });
                 }
 
-                LogToFile($"成功获取排行榜数据，共 {result.Count} 条记录");
+                LogManager.Log("Database", $"成功获取排行榜数据，共 {result.Count} 条记录");
             }
             catch (Exception ex)
             {
-                LogToFile($"获取排行榜数据失败: {ex.Message}");
+                LogManager.LogException("Database", ex, "获取排行榜数据失败");
                 throw;
             }
 
@@ -1326,27 +1496,121 @@ namespace TCClient.Services
             await EnsureConnectionStringLoadedAsync();
             using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
-            using var command = connection.CreateCommand();
-            command.CommandText = @"INSERT INTO simulation_orders
-                (order_id, account_id, contract, contract_size, direction, quantity, entry_price, initial_stop_loss, current_stop_loss, leverage, margin, total_value, status, open_time)
-                VALUES (@orderId, @accountId, @contract, @contractSize, @direction, @quantity, @entryPrice, @initialStopLoss, @currentStopLoss, @leverage, @margin, @totalValue, @status, @openTime);
+            
+            using var transaction = await connection.BeginTransactionAsync();
+            try
+            {
+                // 1. 计算初始止损金额（real_pnl）
+                decimal realPnL = 0m;
+                if (order.Direction.ToLower() == "buy")
+                {
+                    // 做多：止损金额 = (开仓价 - 止损价) * 数量 * 合约面值
+                    realPnL = (order.EntryPrice - order.InitialStopLoss) * (decimal)order.Quantity * order.ContractSize;
+                }
+                else if (order.Direction.ToLower() == "sell")
+                {
+                    // 做空：止损金额 = (止损价 - 开仓价) * 数量 * 合约面值
+                    realPnL = (order.InitialStopLoss - order.EntryPrice) * (decimal)order.Quantity * order.ContractSize;
+                }
+                
+                // 2. 插入订单
+                long orderId;
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = @"
+                        INSERT INTO simulation_orders (
+                            order_id, account_id, contract, contract_size,
+                            direction, quantity, entry_price, initial_stop_loss,
+                            current_stop_loss, leverage, margin, total_value,
+                            status, open_time, real_pnl, floating_pnl, current_price, last_update_time
+                        ) VALUES (
+                            @order_id, @account_id, @contract, @contract_size,
+                            @direction, @quantity, @entry_price, @initial_stop_loss,
+                            @current_stop_loss, @leverage, @margin, @total_value,
+                            @status, @open_time, @real_pnl, 0, @current_price, NOW()
+                        );
                 SELECT LAST_INSERT_ID();";
-            command.Parameters.AddWithValue("@orderId", order.OrderId);
-            command.Parameters.AddWithValue("@accountId", order.AccountId);
+
+                    command.Parameters.AddWithValue("@order_id", order.OrderId);
+                    command.Parameters.AddWithValue("@account_id", order.AccountId);
             command.Parameters.AddWithValue("@contract", order.Contract);
-            command.Parameters.AddWithValue("@contractSize", order.ContractSize);
+                    command.Parameters.AddWithValue("@contract_size", order.ContractSize);
             command.Parameters.AddWithValue("@direction", order.Direction);
             command.Parameters.AddWithValue("@quantity", order.Quantity);
-            command.Parameters.AddWithValue("@entryPrice", order.EntryPrice);
-            command.Parameters.AddWithValue("@initialStopLoss", order.InitialStopLoss);
-            command.Parameters.AddWithValue("@currentStopLoss", order.CurrentStopLoss);
+                    command.Parameters.AddWithValue("@entry_price", order.EntryPrice);
+                    command.Parameters.AddWithValue("@initial_stop_loss", order.InitialStopLoss);
+                    command.Parameters.AddWithValue("@current_stop_loss", order.CurrentStopLoss);
             command.Parameters.AddWithValue("@leverage", order.Leverage);
             command.Parameters.AddWithValue("@margin", order.Margin);
-            command.Parameters.AddWithValue("@totalValue", order.TotalValue);
+                    command.Parameters.AddWithValue("@total_value", order.TotalValue);
             command.Parameters.AddWithValue("@status", order.Status);
-            command.Parameters.AddWithValue("@openTime", order.OpenTime);
-            var id = Convert.ToInt64(await command.ExecuteScalarAsync());
-            return id;
+                    command.Parameters.AddWithValue("@open_time", order.OpenTime);
+                    command.Parameters.AddWithValue("@real_pnl", realPnL);
+                    command.Parameters.AddWithValue("@current_price", order.EntryPrice);
+
+                    orderId = Convert.ToInt64(await command.ExecuteScalarAsync());
+                }
+
+                // 3. 检查是否已存在推仓信息
+                long pushId;
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = @"
+                        SELECT id FROM position_push_info 
+                        WHERE account_id = @account_id 
+                        AND contract = @contract 
+                        AND status = 'open' 
+                        LIMIT 1";
+                    
+                    command.Parameters.AddWithValue("@account_id", order.AccountId);
+                    command.Parameters.AddWithValue("@contract", order.Contract);
+                    
+                    var existingPushId = await command.ExecuteScalarAsync();
+                    if (existingPushId != null)
+                    {
+                        pushId = Convert.ToInt64(existingPushId);
+                    }
+                    else
+                    {
+                        // 4. 创建新的推仓信息
+                        command.CommandText = @"
+                            INSERT INTO position_push_info 
+                            (account_id, contract, status, create_time) 
+                            VALUES 
+                            (@account_id, @contract, 'open', NOW());
+                            SELECT LAST_INSERT_ID();";
+                        
+                        pushId = Convert.ToInt64(await command.ExecuteScalarAsync());
+                    }
+                }
+
+                // 5. 创建推仓与订单关联
+                using (var command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = @"
+                        INSERT INTO position_push_order_rel 
+                        (push_id, order_id, create_time) 
+                        VALUES 
+                        (@push_id, @order_id, NOW())";
+                    
+                    command.Parameters.AddWithValue("@push_id", pushId);
+                    command.Parameters.AddWithValue("@order_id", orderId);
+                    
+                    await command.ExecuteNonQueryAsync();
+                }
+
+                await transaction.CommitAsync();
+                return orderId;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                LogManager.LogException("Database", ex, "创建订单和推仓信息失败");
+                throw;
+            }
         }
 
         public async Task InsertPushOrderRelAsync(long pushId, long orderId)
@@ -1361,66 +1625,615 @@ namespace TCClient.Services
             await command.ExecuteNonQueryAsync();
         }
 
-        public async Task AddUserTradingAccountAsync(long userId, long accountId, bool isDefault)
+        public async Task AddUserTradingAccountAsync(long userId, long accountId, bool isDefault, CancellationToken cancellationToken = default)
         {
             await EnsureConnectionStringLoadedAsync();
-            using var connection = new MySqlConnection(_connectionString);
-            await connection.OpenAsync();
-            using var transaction = await connection.BeginTransactionAsync();
+            using (var connection = new MySqlConnection(_connectionString))
+            {
+                await connection.OpenAsync(cancellationToken);
+                using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+                {
             try
             {
                 if (isDefault)
                 {
                     // 先将该用户其它账户的is_default全部置为0
-                    using var clearCmd = connection.CreateCommand();
+                            using (var clearCmd = connection.CreateCommand())
+                            {
                     clearCmd.Transaction = transaction;
                     clearCmd.CommandText = "UPDATE user_trading_accounts SET is_default=0 WHERE user_id=@userId";
                     clearCmd.Parameters.AddWithValue("@userId", userId);
-                    await clearCmd.ExecuteNonQueryAsync();
+                                await clearCmd.ExecuteNonQueryAsync(cancellationToken);
                 }
+                        }
+
                 // 插入新关联
-                using var cmd = connection.CreateCommand();
+                        using (var cmd = connection.CreateCommand())
+                        {
                 cmd.Transaction = transaction;
-                cmd.CommandText = @"INSERT INTO user_trading_accounts (user_id, account_id, is_default, create_time, update_time) VALUES (@userId, @accountId, @isDefault, NOW(), NOW())";
+                            cmd.CommandText = @"INSERT INTO user_trading_accounts (user_id, account_id, is_default, create_time, update_time) 
+                                              VALUES (@userId, @accountId, @isDefault, NOW(), NOW())";
                 cmd.Parameters.AddWithValue("@userId", userId);
                 cmd.Parameters.AddWithValue("@accountId", accountId);
                 cmd.Parameters.AddWithValue("@isDefault", isDefault ? 1 : 0);
-                await cmd.ExecuteNonQueryAsync();
-                await transaction.CommitAsync();
+                            await cmd.ExecuteNonQueryAsync(cancellationToken);
+                        }
+
+                        await transaction.CommitAsync(cancellationToken);
             }
             catch
             {
-                await transaction.RollbackAsync();
+                        await transaction.RollbackAsync(cancellationToken);
                 throw;
+                    }
+                }
             }
         }
 
-        public async Task SetUserDefaultAccountAsync(long userId, long accountId)
+        public async Task SetUserDefaultAccountAsync(long userId, long accountId, CancellationToken cancellationToken = default)
         {
             await EnsureConnectionStringLoadedAsync();
-            using var connection = new MySqlConnection(_connectionString);
-            await connection.OpenAsync();
-            using var transaction = await connection.BeginTransactionAsync();
+            using (var connection = new MySqlConnection(_connectionString))
+            {
+                await connection.OpenAsync(cancellationToken);
+                using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+                {
             try
             {
                 // 先全部清零
-                using var clearCmd = connection.CreateCommand();
+                        using (var clearCmd = connection.CreateCommand())
+                        {
                 clearCmd.Transaction = transaction;
                 clearCmd.CommandText = "UPDATE user_trading_accounts SET is_default=0 WHERE user_id=@userId";
                 clearCmd.Parameters.AddWithValue("@userId", userId);
-                await clearCmd.ExecuteNonQueryAsync();
+                            await clearCmd.ExecuteNonQueryAsync(cancellationToken);
+                        }
+
                 // 再设置目标为1
-                using var setCmd = connection.CreateCommand();
+                        using (var setCmd = connection.CreateCommand())
+                        {
                 setCmd.Transaction = transaction;
                 setCmd.CommandText = "UPDATE user_trading_accounts SET is_default=1 WHERE user_id=@userId AND account_id=@accountId";
                 setCmd.Parameters.AddWithValue("@userId", userId);
                 setCmd.Parameters.AddWithValue("@accountId", accountId);
-                await setCmd.ExecuteNonQueryAsync();
-                await transaction.CommitAsync();
+                            await setCmd.ExecuteNonQueryAsync(cancellationToken);
+                        }
+
+                        await transaction.CommitAsync(cancellationToken);
             }
             catch
             {
-                await transaction.RollbackAsync();
+                        await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
+                }
+            }
+        }
+
+        public async Task<List<SimulationOrder>> GetSimulationOrdersAsync(int accountId, CancellationToken cancellationToken = default)
+        {
+            var orders = new List<SimulationOrder>();
+            using (var connection = new MySqlConnection(_connectionString))
+            {
+                await connection.OpenAsync(cancellationToken);
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = @"
+                        SELECT * FROM simulation_orders 
+                        WHERE account_id = @account_id 
+                        ORDER BY open_time DESC";
+
+                    command.Parameters.AddWithValue("@account_id", accountId);
+
+                    using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                    {
+                        while (await reader.ReadAsync(cancellationToken))
+                        {
+                            orders.Add(new SimulationOrder
+                            {
+                                Id = reader.GetInt64("id"),
+                                OrderId = reader.GetString("order_id"),
+                                AccountId = reader.GetInt64("account_id"),
+                                Contract = reader.GetString("contract"),
+                                ContractSize = reader.GetDecimal("contract_size"),
+                                Direction = reader.GetString("direction"),
+                                Quantity = reader.GetInt32("quantity"),
+                                EntryPrice = reader.GetDecimal("entry_price"),
+                                InitialStopLoss = reader.GetDecimal("initial_stop_loss"),
+                                CurrentStopLoss = reader.GetDecimal("current_stop_loss"),
+                                HighestPrice = reader.IsDBNull(reader.GetOrdinal("highest_price")) ? null : (decimal?)reader.GetDecimal("highest_price"),
+                                MaxFloatingProfit = reader.IsDBNull(reader.GetOrdinal("max_floating_profit")) ? null : (decimal?)reader.GetDecimal("max_floating_profit"),
+                                Leverage = reader.GetInt32("leverage"),
+                                Margin = reader.GetDecimal("margin"),
+                                TotalValue = reader.GetDecimal("total_value"),
+                                Status = reader.GetString("status"),
+                                OpenTime = reader.GetDateTime("open_time"),
+                                CloseTime = reader.IsDBNull(reader.GetOrdinal("close_time")) ? null : (DateTime?)reader.GetDateTime("close_time"),
+                                ClosePrice = reader.IsDBNull(reader.GetOrdinal("close_price")) ? null : (decimal?)reader.GetDecimal("close_price"),
+                                RealizedProfit = reader.IsDBNull(reader.GetOrdinal("realized_profit")) ? null : (decimal?)reader.GetDecimal("realized_profit"),
+                                CloseType = reader.IsDBNull(reader.GetOrdinal("close_type")) ? null : reader.GetString("close_type"),
+                                RealProfit = reader.IsDBNull(reader.GetOrdinal("real_profit")) ? null : (decimal?)reader.GetDecimal("real_profit"),
+                                FloatingPnL = reader.IsDBNull(reader.GetOrdinal("floating_pnl")) ? null : (decimal?)reader.GetDecimal("floating_pnl"),
+                                CurrentPrice = reader.IsDBNull(reader.GetOrdinal("current_price")) ? null : (decimal?)reader.GetDecimal("current_price"),
+                                LastUpdateTime = reader.IsDBNull(reader.GetOrdinal("last_update_time")) ? null : (DateTime?)reader.GetDateTime("last_update_time"),
+                                RealPnL = reader.IsDBNull(reader.GetOrdinal("real_pnl")) ? null : (decimal?)reader.GetDecimal("real_pnl")
+                            });
+                        }
+                    }
+                }
+            }
+            return orders;
+        }
+
+        public async Task<bool> ConnectAsync(string connectionString, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                _connectionString = connectionString;
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    LogManager.Log("Database", "数据库连接成功");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "数据库连接失败");
+                return false;
+            }
+        }
+
+        public async Task<bool> DisconnectAsync()
+        {
+            try
+            {
+                _connectionString = null;
+                LogManager.Log("Database", "数据库连接已断开");
+                return await Task.FromResult(true);
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "断开数据库连接时发生错误");
+                return await Task.FromResult(false);
+            }
+        }
+
+        public async Task<List<DatabaseInfo>> GetDatabasesAsync(CancellationToken cancellationToken = default)
+        {
+            var databases = new List<DatabaseInfo>();
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SHOW DATABASES";
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                var dbName = reader.GetString(0);
+                                // 排除系统数据库
+                                if (!dbName.Equals("information_schema", StringComparison.OrdinalIgnoreCase) &&
+                                    !dbName.Equals("mysql", StringComparison.OrdinalIgnoreCase) &&
+                                    !dbName.Equals("performance_schema", StringComparison.OrdinalIgnoreCase) &&
+                                    !dbName.Equals("sys", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    databases.Add(new DatabaseInfo
+                                    {
+                                        Name = dbName,
+                                        Description = $"数据库 {dbName}",
+                                        IsSelected = false
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取数据库列表失败");
+                throw;
+            }
+            return databases;
+        }
+
+        public async Task<bool> AddTradingAccountAsync(TradingAccount account, CancellationToken cancellationToken = default)
+        {
+            return await CreateTradingAccountAsync(account, cancellationToken);
+        }
+
+        public async Task<bool> DeleteSimulationOrderAsync(int orderId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "DELETE FROM simulation_orders WHERE id = @id";
+                        command.Parameters.AddWithValue("@id", orderId);
+                        var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                        return result > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "删除模拟订单失败");
+                throw;
+            }
+        }
+
+        public async Task<bool> UpdateSimulationOrderAsync(SimulationOrder order, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE simulation_orders SET
+                                current_stop_loss = @current_stop_loss,
+                                highest_price = @highest_price,
+                                max_floating_profit = @max_floating_profit,
+                                status = @status,
+                                close_time = @close_time,
+                                close_price = @close_price,
+                                realized_profit = @realized_profit,
+                                close_type = @close_type,
+                                real_profit = @real_profit,
+                                floating_pnl = @floating_pnl,
+                                current_price = @current_price,
+                                last_update_time = @last_update_time
+                            WHERE id = @id";
+
+                        command.Parameters.AddWithValue("@id", order.Id);
+                        command.Parameters.AddWithValue("@current_stop_loss", order.CurrentStopLoss);
+                        command.Parameters.AddWithValue("@highest_price", (object)order.HighestPrice ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@max_floating_profit", (object)order.MaxFloatingProfit ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@status", order.Status);
+                        command.Parameters.AddWithValue("@close_time", (object)order.CloseTime ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@close_price", (object)order.ClosePrice ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@realized_profit", (object)order.RealizedProfit ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@close_type", (object)order.CloseType ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@real_profit", (object)order.RealProfit ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@floating_pnl", (object)order.FloatingPnL ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@current_price", (object)order.CurrentPrice ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@last_update_time", DateTime.Now);
+
+                        var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                        return result > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "更新模拟订单失败");
+                throw;
+            }
+        }
+
+        public async Task<bool> AddSimulationOrderAsync(SimulationOrder order, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+                    {
+                        try
+                        {
+                            using (var command = connection.CreateCommand())
+                            {
+                                command.Transaction = transaction;
+                                command.CommandText = @"
+                                    INSERT INTO simulation_orders (
+                                        order_id, account_id, contract, contract_size,
+                                        direction, quantity, entry_price, initial_stop_loss,
+                                        current_stop_loss, leverage, margin, total_value,
+                                        status, open_time, real_pnl
+                                    ) VALUES (
+                                        @order_id, @account_id, @contract, @contract_size,
+                                        @direction, @quantity, @entry_price, @initial_stop_loss,
+                                        @current_stop_loss, @leverage, @margin, @total_value,
+                                        @status, @open_time, @real_pnl
+                                    )";
+
+                                    // 添加参数
+                                    command.Parameters.AddWithValue("@order_id", order.OrderId);
+                                    command.Parameters.AddWithValue("@account_id", order.AccountId);
+                                    command.Parameters.AddWithValue("@contract", order.Contract);
+                                    command.Parameters.AddWithValue("@contract_size", order.ContractSize);
+                                    command.Parameters.AddWithValue("@direction", order.Direction);
+                                    command.Parameters.AddWithValue("@quantity", order.Quantity);
+                                    command.Parameters.AddWithValue("@entry_price", order.EntryPrice);
+                                    command.Parameters.AddWithValue("@initial_stop_loss", order.InitialStopLoss);
+                                    command.Parameters.AddWithValue("@current_stop_loss", order.CurrentStopLoss);
+                                    command.Parameters.AddWithValue("@leverage", order.Leverage);
+                                    command.Parameters.AddWithValue("@margin", order.Margin);
+                                    command.Parameters.AddWithValue("@total_value", order.TotalValue);
+                                    command.Parameters.AddWithValue("@status", order.Status);
+                                    command.Parameters.AddWithValue("@open_time", order.OpenTime);
+                                    command.Parameters.AddWithValue("@real_pnl", DBNull.Value); // 添加real_pnl字段，初始化为NULL
+
+                                    await command.ExecuteNonQueryAsync(cancellationToken);
+                            }
+
+                            await transaction.CommitAsync(cancellationToken);
+                            return true;
+                        }
+                        catch
+                        {
+                            await transaction.RollbackAsync(cancellationToken);
+                            throw;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "添加模拟订单失败");
+                throw;
+            }
+        }
+
+        public async Task<PushSummaryInfo> GetPushSummaryInfoAsync(long accountId, string contract)
+        {
+            try
+            {
+                LogManager.Log("Database", $"开始获取推仓信息 - 账户ID: {accountId}, 合约: {contract}");
+            await EnsureConnectionStringLoadedAsync();
+                
+                PushSummaryInfo summary = null;
+                
+                // 第一个连接：获取推仓基本信息
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT p.*, 
+                           COUNT(o.id) as total_orders,
+                           SUM(CASE WHEN o.status = 'open' THEN 1 ELSE 0 END) as open_orders,
+                           SUM(CASE WHEN o.status = 'closed' THEN 1 ELSE 0 END) as closed_orders,
+                                   SUM(COALESCE(o.floating_pnl, 0)) as total_floating_pnl,
+                                   SUM(COALESCE(o.real_profit, 0)) as total_real_pnl
+                    FROM position_push_info p
+                    LEFT JOIN position_push_order_rel r ON p.id = r.push_id
+                    LEFT JOIN simulation_orders o ON r.order_id = o.id
+                    WHERE p.account_id = @accountId 
+                    AND p.contract = @contract 
+                    AND p.status = 'open'
+                            GROUP BY p.id, p.contract, p.account_id, p.create_time, p.status, p.close_time";
+
+                command.Parameters.AddWithValue("@accountId", accountId);
+                command.Parameters.AddWithValue("@contract", contract);
+
+                        LogManager.Log("Database", $"执行推仓信息查询: {command.CommandText}");
+
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            if (!await reader.ReadAsync())
+                            {
+                                LogManager.Log("Database", $"未找到推仓信息 - 账户ID: {accountId}, 合约: {contract}");
+                                return new PushSummaryInfo
+                                {
+                                    PushId = 0,
+                                    Contract = contract,
+                                    CreateTime = DateTime.Now,
+                                    Status = "open",
+                                    TotalFloatingPnL = 0m,
+                                    TotalRealPnL = 0m,
+                                    TotalOrderCount = 0,
+                                    OpenOrderCount = 0,
+                                    ClosedOrderCount = 0,
+                                    RiskAmount = 0m,
+                                    AvailableRiskAmount = 0m,
+                                    Orders = new List<SimulationOrder>()
+                                };
+                            }
+
+                            LogManager.Log("Database", "成功读取推仓基本信息");
+                            summary = new PushSummaryInfo
+                            {
+                                PushId = reader.GetInt64("id"),
+                                Contract = reader.GetString("contract"),
+                                CreateTime = reader.GetDateTime("create_time"),
+                                Status = reader.GetString("status"),
+                                TotalOrderCount = reader.GetInt32("total_orders"),
+                                OpenOrderCount = reader.GetInt32("open_orders"),
+                                ClosedOrderCount = reader.GetInt32("closed_orders"),
+                                TotalFloatingPnL = reader.IsDBNull(reader.GetOrdinal("total_floating_pnl")) ? 0m : reader.GetDecimal("total_floating_pnl"),
+                                TotalRealPnL = reader.IsDBNull(reader.GetOrdinal("total_real_pnl")) ? 0m : reader.GetDecimal("total_real_pnl"),
+                                Orders = new List<SimulationOrder>()
+                            };
+                        }
+                    }
+                }
+
+                if (summary == null)
+                {
+                    throw new Exception("获取推仓信息失败：summary 对象为空");
+                }
+
+                // 第二个连接：获取订单详情
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT o.* 
+                    FROM simulation_orders o
+                    INNER JOIN position_push_order_rel r ON o.id = r.order_id
+                    WHERE r.push_id = @pushId
+                    ORDER BY o.open_time DESC";
+
+                command.Parameters.AddWithValue("@pushId", summary.PushId);
+                        LogManager.Log("Database", $"执行订单查询: pushId={summary.PushId}");
+
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                while (await reader.ReadAsync())
+                {
+                    var order = new SimulationOrder
+                    {
+                        Id = reader.GetInt64("id"),
+                        OrderId = reader.GetString("order_id"),
+                        AccountId = reader.GetInt64("account_id"),
+                        Contract = reader.GetString("contract"),
+                        ContractSize = reader.GetDecimal("contract_size"),
+                        Direction = reader.GetString("direction"),
+                                    Quantity = reader.GetFloat("quantity"), // 使用 GetFloat 读取数量
+                        EntryPrice = reader.GetDecimal("entry_price"),
+                        InitialStopLoss = reader.GetDecimal("initial_stop_loss"),
+                        CurrentStopLoss = reader.GetDecimal("current_stop_loss"),
+                        HighestPrice = reader.IsDBNull(reader.GetOrdinal("highest_price")) ? null : (decimal?)reader.GetDecimal("highest_price"),
+                        MaxFloatingProfit = reader.IsDBNull(reader.GetOrdinal("max_floating_profit")) ? null : (decimal?)reader.GetDecimal("max_floating_profit"),
+                        Leverage = reader.GetInt32("leverage"),
+                        Margin = reader.GetDecimal("margin"),
+                        TotalValue = reader.GetDecimal("total_value"),
+                        Status = reader.GetString("status"),
+                        OpenTime = reader.GetDateTime("open_time"),
+                        CloseTime = reader.IsDBNull(reader.GetOrdinal("close_time")) ? null : (DateTime?)reader.GetDateTime("close_time"),
+                        ClosePrice = reader.IsDBNull(reader.GetOrdinal("close_price")) ? null : (decimal?)reader.GetDecimal("close_price"),
+                                    RealizedProfit = reader.IsDBNull(reader.GetOrdinal("realized_profit")) ? 0m : reader.GetDecimal("realized_profit"),
+                        CloseType = reader.IsDBNull(reader.GetOrdinal("close_type")) ? null : reader.GetString("close_type"),
+                                    RealProfit = reader.IsDBNull(reader.GetOrdinal("real_profit")) ? 0m : reader.GetDecimal("real_profit"),
+                                    FloatingPnL = reader.IsDBNull(reader.GetOrdinal("floating_pnl")) ? 0m : reader.GetDecimal("floating_pnl"),
+                        CurrentPrice = reader.IsDBNull(reader.GetOrdinal("current_price")) ? null : (decimal?)reader.GetDecimal("current_price"),
+                        LastUpdateTime = reader.IsDBNull(reader.GetOrdinal("last_update_time")) ? null : (DateTime?)reader.GetDateTime("last_update_time"),
+                                    RealPnL = reader.IsDBNull(reader.GetOrdinal("real_profit")) ? 0m : reader.GetDecimal("real_profit")
+                    };
+                    summary.Orders.Add(order);
+                                LogManager.Log("Database", $"成功读取订单: ID={order.Id}, 状态={order.Status}, 数量={order.Quantity}");
+                            }
+                        }
+                    }
+                }
+
+                // 第三个连接：获取可用风险金
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT equity, opportunity_count 
+                            FROM trading_accounts 
+                            WHERE id = @accountId";
+
+                        command.Parameters.AddWithValue("@accountId", accountId);
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                var equity = reader.GetDecimal("equity");
+                                var opportunityCount = reader.GetInt32("opportunity_count");
+                                summary.AvailableRiskAmount = opportunityCount > 0 ? equity / opportunityCount : 0;
+                                LogManager.Log("Database", $"获取可用风险金: {summary.AvailableRiskAmount}");
+                            }
+                        }
+                    }
+                }
+
+                // 计算占用风险金
+            summary.RiskAmount = summary.Orders.Where(o => o.Status == "open").Sum(o => o.Margin);
+                LogManager.Log("Database", $"计算占用风险金: {summary.RiskAmount}");
+
+                LogManager.Log("Database", "成功获取推仓信息");
+            return summary;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取推仓信息失败");
+                throw;
+            }
+        }
+
+        public async Task<decimal> GetAccountAvailableRiskAmountAsync(long accountId)
+        {
+            await EnsureConnectionStringLoadedAsync();
+            using var connection = new MySqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT equity, opportunity_count 
+                FROM trading_accounts 
+                WHERE id = @accountId";
+
+            command.Parameters.AddWithValue("@accountId", accountId);
+
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var equity = reader.GetDecimal("equity");
+                var opportunityCount = reader.GetInt32("opportunity_count");
+                return opportunityCount > 0 ? equity / opportunityCount : 0;
+            }
+
+            return 0;
+        }
+
+        // 添加GetUserAsync方法实现
+        public async Task<User> GetUserAsync(string username, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                LogManager.Log("Database", $"开始获取用户信息: {username}");
+                await EnsureConnectionStringLoadedAsync();
+                
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT * FROM users WHERE username = @username";
+                        command.Parameters.AddWithValue("@username", username);
+                        LogManager.Log("Database", $"执行SQL: {command.CommandText}");
+
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                var user = new User
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    Username = reader.GetString("username"),
+                                    Email = reader.IsDBNull(reader.GetOrdinal("email")) ? null : reader.GetString("email"),
+                                    LastLoginTime = reader.IsDBNull(reader.GetOrdinal("last_login_time")) ? null : (DateTime?)reader.GetDateTime("last_login_time"),
+                                    Status = reader.GetInt32("status"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    UpdateTime = reader.GetDateTime("update_time")
+                                };
+                                
+                                LogManager.Log("Database", $"成功获取用户信息: ID={user.Id}, 用户名={user.Username}");
+                                return user;
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"未找到用户: {username}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取用户 {username} 信息失败");
                 throw;
             }
         }

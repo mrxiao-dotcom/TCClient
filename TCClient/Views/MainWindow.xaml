@@ -1,9 +1,15 @@
 <Window x:Class="TCClient.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="交易客户端" Height="720" Width="1280"
+        Title="交易客户端" 
+        Height="720" 
+        Width="1280"
         WindowStartupLocation="CenterScreen"
-        WindowState="Maximized">
+        WindowState="Normal"
+        ResizeMode="CanResize"
+        ShowInTaskbar="True"
+        Loaded="MainWindow_Loaded"
+        Closed="MainWindow_Closed">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -87,6 +93,19 @@
                     </MenuItem.Icon>
                 </MenuItem>
             </MenuItem>
+
+            <!-- 在菜单中添加切换账户选项 -->
+            <MenuItem Header="账户">
+                <MenuItem Header="切换账户" Command="{Binding SwitchAccountCommand}">
+                    <MenuItem.Icon>
+                        <Path Data="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z" 
+                              Fill="Black" 
+                              Stretch="Uniform" 
+                              Width="16" 
+                              Height="16"/>
+                    </MenuItem.Icon>
+                </MenuItem>
+            </MenuItem>
         </Menu>
 
         <!-- 主内容区域 -->
@@ -97,19 +116,19 @@
         <!-- 状态栏 -->
         <StatusBar Grid.Row="2">
             <StatusBarItem>
-                <TextBlock Text="{Binding StatusMessage}"/>
+                <TextBlock Text="{Binding StatusMessage}" Margin="0,0,15,0"/>
             </StatusBarItem>
-            <Separator/>
+            <TextBlock Text="|" Margin="0,0,15,0"/>
             <StatusBarItem>
-                <TextBlock Text="{Binding CurrentUser, StringFormat='当前用户：{0}'}"/>
+                <TextBlock Text="{Binding CurrentUser, StringFormat='当前用户：{0}'}" Margin="0,0,15,0"/>
             </StatusBarItem>
-            <Separator/>
+            <TextBlock Text="|" Margin="0,0,15,0"/>
             <StatusBarItem>
-                <TextBlock Text="{Binding CurrentDatabase, StringFormat='当前数据库：{0}'}"/>
+                <TextBlock Text="{Binding CurrentDatabase, StringFormat='当前数据库：{0}'}" Margin="0,0,15,0"/>
             </StatusBarItem>
-            <Separator/>
+            <TextBlock Text="|" Margin="0,0,15,0"/>
             <StatusBarItem>
-                <TextBlock Text="{Binding CurrentAccountIdDisplay}"/>
+                <TextBlock Text="{Binding CurrentAccountIdDisplay}" Margin="0,0,15,0"/>
             </StatusBarItem>
         </StatusBar>
     </Grid>

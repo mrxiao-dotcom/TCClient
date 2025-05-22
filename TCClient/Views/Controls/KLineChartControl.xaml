@@ -1,0 +1,58 @@
+<UserControl x:Class="TCClient.Views.Controls.KLineChartControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:TCClient.Views.Controls"
+             mc:Ignorable="d" 
+             d:DesignHeight="450" d:DesignWidth="800">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 左侧功能按钮区域 -->
+        <StackPanel Grid.Column="0" Margin="10">
+            <GroupBox Header="显示设置" Margin="0,0,0,10">
+                <StackPanel>
+                    <TextBlock Text="K线数量：" Margin="0,5"/>
+                    <TextBox x:Name="KLineCountTextBox" Text="200" Margin="0,5"/>
+                    <Button Content="更新显示" Margin="0,5" Click="UpdateDisplayButton_Click"/>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="数据管理" Margin="0,0,0,10">
+                <StackPanel>
+                    <Button Content="获取K线数据" Margin="0,5" Click="FetchKLineDataButton_Click"/>
+                    <Button Content="保存K线数据" Margin="0,5" Click="SaveKLineDataButton_Click"/>
+                    <Button Content="加载本地数据" Margin="0,5" Click="LoadLocalDataButton_Click"/>
+                </StackPanel>
+            </GroupBox>
+        </StackPanel>
+
+        <!-- 右侧K线图区域 -->
+        <Grid Grid.Column="1" Margin="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- 价格标签 -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,5">
+                <TextBlock x:Name="MaxPriceTextBlock" Foreground="White" Margin="0,0,10,0"/>
+                <TextBlock x:Name="MinPriceTextBlock" Foreground="White"/>
+            </StackPanel>
+            
+            <!-- K线图Canvas -->
+            <Border Grid.Row="1" 
+                    BorderBrush="#FF3E3E3E" 
+                    BorderThickness="1" 
+                    Background="#FF1E1E1E">
+                <Canvas x:Name="KLineCanvas" 
+                        Background="Transparent"
+                        ClipToBounds="True"/>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl> 

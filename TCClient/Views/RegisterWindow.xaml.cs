@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using TCClient.ViewModels;
+using TCClient.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TCClient.Views
 {
@@ -13,14 +15,21 @@ namespace TCClient.Views
         private readonly RegisterViewModel _viewModel;
         private bool _isUpdatingPassword;
         private bool _isUpdatingConfirmPassword;
+        private readonly IServiceProvider _services;
 
-        public RegisterWindow()
+        public RegisterWindow(IServiceProvider services)
         {
+            _services = services;
             InitializeComponent();
             InitializePasswordToggles();
 
-            _viewModel = new RegisterViewModel();
+            _viewModel = new RegisterViewModel(
+                _services.GetRequiredService<IUserService>(),
+                _services.GetRequiredService<IMessageService>()
+            );
+
             DataContext = _viewModel;
+            _viewModel.CancelRequested += OnCancelRequested;
 
             // 监听密码属性的变化
             _viewModel.PropertyChanged += (s, e) =>
@@ -36,17 +45,20 @@ namespace TCClient.Views
             };
 
             // 订阅注册成功事件
-            _viewModel.RegisterSuccess += () =>
+            _viewModel.RegisterSuccess += (sender, args) =>
             {
-                DialogResult = true;
-                Close();
-            };
-
-            // 订阅取消事件
-            _viewModel.CancelRequested += () =>
-            {
-                DialogResult = false;
-                Close();
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        DialogResult = true;
+                        Close();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"关闭注册窗口时发生错误：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             };
 
             // 初始化密码框
@@ -246,6 +258,35 @@ namespace TCClient.Views
                 {
                     _isUpdatingConfirmPassword = false;
                 }
+            }
+        }
+
+        private void OnCancelRequested(object sender, EventArgs e)
+        {
+            try
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    DialogResult = false;
+                    Close();
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"关闭注册窗口时发生错误：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            try
+            {
+                base.OnClosed(e);
+                _viewModel.CancelRequested -= OnCancelRequested;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"窗口关闭事件处理时发生错误：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

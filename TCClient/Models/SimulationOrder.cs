@@ -10,7 +10,7 @@ namespace TCClient.Models
         public string Contract { get; set; }
         public decimal ContractSize { get; set; }
         public string Direction { get; set; }
-        public int Quantity { get; set; }
+        public float Quantity { get; set; }
         public decimal EntryPrice { get; set; }
         public decimal InitialStopLoss { get; set; }
         public decimal CurrentStopLoss { get; set; }
@@ -29,5 +29,6 @@ namespace TCClient.Models
         public decimal? FloatingPnL { get; set; }
         public decimal? CurrentPrice { get; set; }
         public DateTime? LastUpdateTime { get; set; }
+        public decimal? RealPnL { get; set; }
     }
 } 

@@ -1,7 +1,10 @@
 ﻿<Application x:Class="TCClient.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:converters="clr-namespace:TCClient.Converters">
+             xmlns:converters="clr-namespace:TCClient.Converters"
+             xmlns:local="clr-namespace:TCClient"
+             xmlns:utils="clr-namespace:TCClient.Utils"
+             ShutdownMode="OnLastWindowClose">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -10,6 +13,13 @@
             <converters:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
             <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
             <converters:TestResultColorConverter x:Key="TestResultColorConverter"/>
+            <utils:BooleanToStatusConverter x:Key="BooleanToStatusConverter"/>
+            
+            <!-- 全局样式定义 -->
+            <Style TargetType="Button">
+                <Setter Property="Padding" Value="10,5"/>
+                <Setter Property="Margin" Value="5"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

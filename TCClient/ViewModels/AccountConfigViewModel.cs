@@ -7,6 +7,7 @@ using TCClient.Commands;
 using TCClient.Models;
 using TCClient.Services;
 using TCClient.Utils;
+using TCClient.Views;
 
 namespace TCClient.ViewModels
 {
@@ -24,27 +25,21 @@ namespace TCClient.ViewModels
     {
         private readonly IUserService _userService;
         private readonly IMessageService _messageService;
-        private readonly ObservableCollection<TradingAccount> _accounts;
+        private readonly IDatabaseService _databaseService;
+        private ObservableCollection<TradingAccount> _accounts;
         private TradingAccount _selectedAccount;
         private bool _isLoading;
+        private string _statusMessage;
 
-        public AccountConfigViewModel()
+        public ObservableCollection<TradingAccount> Accounts
         {
-            _userService = ServiceLocator.GetService<IUserService>();
-            _messageService = ServiceLocator.GetService<IMessageService>();
-            _accounts = new ObservableCollection<TradingAccount>();
-
-            // 初始化命令
-            AddAccountCommand = new RelayCommand(AddAccount);
-            DeleteAccountCommand = new RelayCommand(DeleteAccount, CanDeleteAccount);
-            SaveCommand = new RelayCommand(async () => await SaveAsync(), CanSave);
-            CancelCommand = new RelayCommand(Cancel);
-
-            // 加载账户列表
-            _ = LoadAccountsAsync();
+            get => _accounts;
+            set
+            {
+                _accounts = value;
+                OnPropertyChanged();
+            }
         }
-
-        public ObservableCollection<TradingAccount> Accounts => _accounts;
 
         public TradingAccount SelectedAccount
         {
@@ -73,12 +68,46 @@ namespace TCClient.ViewModels
             }
         }
 
+        public string StatusMessage
+        {
+            get => _statusMessage;
+            set
+            {
+                _statusMessage = value;
+                OnPropertyChanged();
+            }
+        }
+
         public ICommand AddAccountCommand { get; }
+        public ICommand EditAccountCommand { get; }
         public ICommand DeleteAccountCommand { get; }
+        public ICommand SetDefaultAccountCommand { get; }
+        public ICommand RefreshCommand { get; }
         public ICommand SaveCommand { get; }
         public ICommand CancelCommand { get; }
 
         public event EventHandler<DialogResultEventArgs> CloseWindow;
+
+        public AccountConfigViewModel(
+            IUserService userService,
+            IMessageService messageService,
+            IDatabaseService databaseService)
+        {
+            _userService = userService;
+            _messageService = messageService;
+            _databaseService = databaseService;
+
+            Accounts = new ObservableCollection<TradingAccount>();
+            AddAccountCommand = new RelayCommand(ShowAddAccountWindow);
+            EditAccountCommand = new RelayCommand(EditAccount);
+            DeleteAccountCommand = new RelayCommand(DeleteAccount);
+            SetDefaultAccountCommand = new RelayCommand(SetDefaultAccount);
+            RefreshCommand = new RelayCommand(async () => await LoadAccountsAsync());
+            SaveCommand = new RelayCommand(Save);
+            CancelCommand = new RelayCommand(Cancel);
+
+            _ = LoadAccountsAsync();
+        }
 
         private async Task LoadAccountsAsync()
         {
@@ -86,19 +115,15 @@ namespace TCClient.ViewModels
             {
                 IsLoading = true;
                 var accounts = await _userService.GetTradingAccountsAsync();
-                _accounts.Clear();
+                Accounts.Clear();
                 foreach (var account in accounts)
                 {
-                    _accounts.Add(account);
+                    Accounts.Add(account);
                 }
             }
             catch (Exception ex)
             {
-                _messageService.ShowMessage(
-                    $"加载账户列表失败：{ex.Message}",
-                    "错误",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                _messageService.ShowMessage($"加载账户列表失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally
             {
@@ -106,27 +131,38 @@ namespace TCClient.ViewModels
             }
         }
 
-        private void AddAccount()
+        private void ShowAddAccountWindow()
         {
-            var newAccount = new TradingAccount
+            var window = new AddAccountWindow
             {
-                AccountName = "新账户",
-                BinanceAccountId = "",
-                ApiKey = "",
-                ApiSecret = "",
-                ApiPassphrase = "",
-                Equity = 0,
-                InitialEquity = 0,
-                OpportunityCount = 10,
-                Status = 1, // 1-启用
-                IsActive = 1,
-                CreateTime = DateTime.Now,
-                UpdateTime = DateTime.Now,
-                IsDefault = false
+                Owner = Application.Current.MainWindow
             };
 
-            _accounts.Add(newAccount);
-            SelectedAccount = newAccount;
+            if (window.ShowDialog() == true)
+            {
+                // 重新加载账户列表
+                _ = LoadAccountsAsync();
+            }
+        }
+
+        private void EditAccount()
+        {
+            if (SelectedAccount == null) return;
+
+            var window = new AddAccountWindow
+            {
+                Owner = Application.Current.MainWindow
+            };
+
+            // 设置编辑模式
+            var viewModel = window.ViewModel;
+            viewModel.SetEditMode(SelectedAccount);
+
+            if (window.ShowDialog() == true)
+            {
+                // 重新加载账户列表
+                _ = LoadAccountsAsync();
+            }
         }
 
         private bool CanDeleteAccount()
@@ -149,7 +185,7 @@ namespace TCClient.ViewModels
                 try
                 {
                     await _userService.DeleteTradingAccountAsync(SelectedAccount.Id);
-                    _accounts.Remove(SelectedAccount);
+                    Accounts.Remove(SelectedAccount);
                     SelectedAccount = null;
                 }
                 catch (Exception ex)
@@ -163,27 +199,16 @@ namespace TCClient.ViewModels
             }
         }
 
-        private bool CanSave()
+        private void SetDefaultAccount()
         {
-            return true;
+            // Implementation needed
         }
 
-        private async Task SaveAsync()
+        private void Save()
         {
             try
             {
-                foreach (var account in _accounts)
-                {
-                    if (account.Id == 0)
-                    {
-                        await _userService.CreateTradingAccountAsync(account);
-                    }
-                    else
-                    {
-                        await _userService.UpdateTradingAccountAsync(account);
-                    }
-                }
-
+                // 关闭窗口，因为账户的保存已经在AddAccountWindow中完成
                 CloseWindow?.Invoke(this, new DialogResultEventArgs(true));
             }
             catch (Exception ex)

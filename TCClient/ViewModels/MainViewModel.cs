@@ -8,6 +8,9 @@ using TCClient.Models;
 using TCClient.Services;
 using TCClient.Views;
 using TCClient.Utils;
+using System.Linq;
+using System.IO;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TCClient.ViewModels
 {
@@ -21,15 +24,21 @@ namespace TCClient.ViewModels
         private string _currentUser;
         private string _currentAccount;
         private string _connectionStatus;
-        private Account _selectedAccount;
-        private ObservableCollection<Account> _accounts;
-        private ObservableCollection<Position> _positions;
+        private TradingAccount _selectedAccount;
+        private ObservableCollection<TradingAccount> _accounts;
+        private ObservableCollection<SimulationOrder> _positions;
         private ObservableCollection<Order> _orders;
         private ObservableCollection<Trade> _trades;
         private string _currentDatabase;
         private object _currentView;
         private string _databaseInfo;
         private string _currentAccountIdDisplay;
+        private static readonly string LogFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+            "TCClient_MainViewModel.log");
+        private static readonly string MenuLogFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+            "TCClient_Menu.log");
 
         public string StatusMessage
         {
@@ -83,7 +92,7 @@ namespace TCClient.ViewModels
             }
         }
 
-        public Account SelectedAccount
+        public TradingAccount SelectedAccount
         {
             get => _selectedAccount;
             set
@@ -101,7 +110,7 @@ namespace TCClient.ViewModels
             }
         }
 
-        public ObservableCollection<Account> Accounts
+        public ObservableCollection<TradingAccount> Accounts
         {
             get => _accounts;
             set
@@ -111,7 +120,7 @@ namespace TCClient.ViewModels
             }
         }
 
-        public ObservableCollection<Position> Positions
+        public ObservableCollection<SimulationOrder> Positions
         {
             get => _positions;
             set
@@ -203,6 +212,7 @@ namespace TCClient.ViewModels
         public ICommand ShowAboutCommand { get; }
         public ICommand ShowRankingCommand { get; }
         public ICommand ShowOrderWindowCommand { get; }
+        public ICommand SwitchAccountCommand { get; }
 
         public MainViewModel(
             IDatabaseService databaseService,
@@ -215,8 +225,8 @@ namespace TCClient.ViewModels
             _userService = userService;
             _messageService = messageService;
 
-            _accounts = new ObservableCollection<Account>();
-            _positions = new ObservableCollection<Position>();
+            _accounts = new ObservableCollection<TradingAccount>();
+            _positions = new ObservableCollection<SimulationOrder>();
             _orders = new ObservableCollection<Order>();
             _trades = new ObservableCollection<Trade>();
 
@@ -234,6 +244,7 @@ namespace TCClient.ViewModels
             MarketDataCommand = new RelayCommand(() => ShowMarketDataWindow());
             TradeHistoryCommand = new RelayCommand(() => ShowTradeHistoryWindow());
             ShowOrderWindowCommand = new RelayCommand(ShowOrderWindow);
+            SwitchAccountCommand = new RelayCommand(ShowSwitchAccountDialog);
 
             // 初始化状态
             StatusMessage = "就绪";
@@ -242,25 +253,56 @@ namespace TCClient.ViewModels
             DatabaseInfo = "未连接";
 
             // 加载初始数据
-            LoadInitialDataAsync().ConfigureAwait(false);
-            UpdateCurrentAccountIdDisplay();
+            InitializeAsync();
         }
 
-        private async Task LoadInitialDataAsync()
+        private async void InitializeAsync()
         {
             try
             {
-                var isConnected = await _databaseService.TestConnectionAsync();
-                DatabaseInfo = isConnected ? "已连接" : "未连接";
+                await LoadInitialDataAsync();
+                await UpdateCurrentAccountIdDisplay();
             }
             catch (Exception ex)
             {
-                _messageService.ShowMessage(
-                    $"连接数据库失败：{ex.Message}",
-                    "错误",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-                DatabaseInfo = "连接失败";
+                StatusMessage = $"初始化失败：{ex.Message}";
+            }
+        }
+
+        public async Task LoadInitialDataAsync()
+        {
+            try
+            {
+                // 加载交易账户列表
+                await LoadAccounts();
+
+                // 如果有默认账户，选择它并设置当前账户ID
+                var defaultAccount = Accounts.FirstOrDefault(a => a.IsDefaultAccount);
+                if (defaultAccount != null)
+                {
+                    SelectedAccount = defaultAccount;
+                    AppSession.CurrentAccountId = defaultAccount.Id;
+                    CurrentAccountIdDisplay = $"当前账户ID：{defaultAccount.Id}";
+                    StatusMessage = $"已自动选择默认账户：{defaultAccount.AccountName}";
+                }
+                else if (Accounts.Any())
+                {
+                    // 如果没有默认账户但有其他账户，选择第一个
+                    SelectedAccount = Accounts.First();
+                    AppSession.CurrentAccountId = Accounts.First().Id;
+                    CurrentAccountIdDisplay = $"当前账户ID：{Accounts.First().Id}";
+                    StatusMessage = "已选择第一个可用账户";
+                }
+                else
+                {
+                    CurrentAccountIdDisplay = "请添加交易账户";
+                    StatusMessage = "未配置交易账户";
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"加载初始数据失败：{ex.Message}";
+                CurrentAccountIdDisplay = "获取账户信息失败";
             }
         }
 
@@ -268,61 +310,62 @@ namespace TCClient.ViewModels
         {
             try
             {
-                var accounts = await _databaseService.GetUserAccountsAsync(CurrentUser);
+                var accounts = await _userService.GetTradingAccountsAsync();
                 Accounts.Clear();
                 foreach (var account in accounts)
                 {
                     Accounts.Add(account);
                 }
-
-                if (Accounts.Count > 0)
-                {
-                    SelectedAccount = Accounts[0];
-                }
             }
             catch (Exception ex)
             {
-                StatusMessage = $"加载账户列表失败：{ex.Message}";
+                LogToFile($"加载账户列表失败: {ex.Message}");
+                StatusMessage = "加载账户列表失败";
             }
         }
 
         private async void LoadAccountData()
         {
-            if (SelectedAccount == null) return;
-
             try
             {
-                StatusMessage = "正在加载账户数据...";
+                if (SelectedAccount == null)
+                {
+                    StatusMessage = "未选择账户";
+                    CurrentAccount = "未选择账户";
+                    CurrentAccountIdDisplay = "请选择交易账户";
+                    return;
+                }
 
-                // 加载持仓数据
-                var positions = await _databaseService.GetPositionsAsync(SelectedAccount.Id);
+                // 更新账户基本信息
+                CurrentAccount = SelectedAccount.AccountName;
+                await UpdateCurrentAccountIdDisplay();
+
+                // 从 simulation_orders 表加载持仓数据
+                var positions = await _databaseService.GetSimulationOrdersAsync((int)SelectedAccount.Id);
                 Positions.Clear();
-                foreach (var position in positions)
+                foreach (var position in positions.Where(p => p.Status == "open"))
                 {
                     Positions.Add(position);
                 }
 
-                // 加载委托数据
-                var orders = await _databaseService.GetOrdersAsync(SelectedAccount.Id);
-                Orders.Clear();
-                foreach (var order in orders)
+                // 更新状态栏显示
+                if (Positions.Any())
                 {
-                    Orders.Add(order);
+                    var positionInfo = string.Join(", ", Positions.Select(p => 
+                        $"{p.Contract} {p.Direction} {p.Quantity}手"));
+                    StatusMessage = $"当前持仓: {positionInfo}";
                 }
-
-                // 加载成交数据
-                var trades = await _databaseService.GetTradesAsync(SelectedAccount.Id);
-                Trades.Clear();
-                foreach (var trade in trades)
+                else
                 {
-                    Trades.Add(trade);
+                    StatusMessage = $"当前账户: {SelectedAccount.AccountName}";
                 }
-
-                StatusMessage = "账户数据加载完成";
+                ConnectionStatus = "已连接";
             }
             catch (Exception ex)
             {
-                StatusMessage = $"加载账户数据失败：{ex.Message}";
+                LogToFile($"加载账户数据失败: {ex.Message}");
+                StatusMessage = $"加载账户数据失败: {ex.Message}";
+                ConnectionStatus = "连接异常";
             }
         }
 
@@ -330,7 +373,10 @@ namespace TCClient.ViewModels
         {
             try
             {
-                var window = new RankingWindow
+                var services = ((App)Application.Current).Services;
+                var window = new RankingWindow(
+                    services.GetRequiredService<IRankingService>(),
+                    services.GetRequiredService<IMessageService>())
                 {
                     Owner = Application.Current.MainWindow
                 };
@@ -338,6 +384,7 @@ namespace TCClient.ViewModels
             }
             catch (Exception ex)
             {
+                LogMenuError(nameof(ShowFindOpportunity), ex);
                 _messageService.ShowMessage(
                     $"打开排行榜窗口失败：{ex.Message}",
                     "错误",
@@ -350,14 +397,17 @@ namespace TCClient.ViewModels
         {
             try
             {
+                var services = ((App)Application.Current).Services;
                 var window = new AccountConfigWindow
                 {
-                    Owner = Application.Current.MainWindow
+                    Owner = Application.Current.MainWindow,
+                    DataContext = services.GetRequiredService<AccountConfigViewModel>()
                 };
                 window.ShowDialog();
             }
             catch (Exception ex)
             {
+                LogMenuError(nameof(ShowAccountConfig), ex);
                 _messageService.ShowMessage(
                     $"打开账户配置窗口失败：{ex.Message}",
                     "错误",
@@ -378,6 +428,7 @@ namespace TCClient.ViewModels
             }
             catch (Exception ex)
             {
+                LogMenuError(nameof(ShowDatabaseConfig), ex);
                 _messageService.ShowMessage(
                     $"打开数据库配置窗口失败：{ex.Message}",
                     "错误",
@@ -388,84 +439,452 @@ namespace TCClient.ViewModels
 
         private void ShowAbout()
         {
-            _messageService.ShowMessage(
-                "交易客户端 v1.0\n\n" +
-                "本程序用于管理和监控交易账户，提供实时行情和交易功能。\n\n" +
-                "© 2024 All Rights Reserved",
-                "关于",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            try
+            {
+                _messageService.ShowMessage(
+                    "交易客户端 v1.0\n\n" +
+                    "本程序用于管理和监控交易账户，提供实时行情和交易功能。\n\n" +
+                    "© 2024 All Rights Reserved",
+                    "关于",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowAbout), ex);
+                _messageService.ShowMessage(
+                    $"显示关于信息失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void Exit()
         {
-            var result = _messageService.ShowMessage(
-                "确定要退出程序吗？",
-                "确认退出",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
+            try
             {
-                Application.Current.Shutdown();
+                LogToFile("Exit方法被调用 - 用户尝试退出应用程序");
+                
+                var result = _messageService.ShowMessage(
+                    "确定要退出应用程序吗？",
+                    "确认",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                LogToFile($"退出确认对话框结果: {result}");
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    LogToFile("用户确认退出应用程序，开始执行退出流程");
+                    
+                    // 清理资源和保存数据
+                    try
+                    {
+                        LogToFile("保存应用程序状态");
+                        // 保存任何需要保存的状态...
+                    }
+                    catch (Exception saveEx)
+                    {
+                        LogToFile($"保存状态失败: {saveEx.Message}");
+                    }
+                    
+                    // 使用CloseByUser方法关闭主窗口
+                    if (Application.Current.MainWindow is Views.MainWindow mainWindow)
+                    {
+                        // 记录日志
+                        LogToFile("找到主窗口，调用CloseByUser方法");
+                        
+                        // 设置一个标志让应用程序知道这是用户请求的关闭
+                        AppSession.UserRequestedExit = true;
+                        LogToFile("设置AppSession.UserRequestedExit = true");
+                        
+                        // 调用CloseByUser方法
+                        mainWindow.CloseByUser();
+                        LogToFile("CloseByUser方法已调用");
+                    }
+                    else
+                    {
+                        // 如果找不到主窗口，直接关闭应用程序
+                        LogToFile("未找到主窗口，直接调用Application.Current.Shutdown()");
+                        Application.Current.Shutdown();
+                    }
+                }
+                else
+                {
+                    LogToFile("用户取消了退出操作");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(Exit), ex);
+                _messageService.ShowMessage(
+                    $"退出应用程序失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
 
         private void ShowAccountManagementWindow()
         {
-            // TODO: 实现账户管理窗口
-            MessageBox.Show("账户管理功能正在开发中...", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                var window = new AccountConfigWindow
+                {
+                    Owner = Application.Current.MainWindow
+                };
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开账户管理窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void ShowRiskMonitorWindow()
         {
-            // TODO: 实现风险监控窗口
-            MessageBox.Show("风险监控功能正在开发中...", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                _messageService.ShowMessage(
+                    "风险监控功能正在开发中...",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开风险监控窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void ShowSimulationTradeWindow()
         {
-            // TODO: 实现模拟交易窗口
-            MessageBox.Show("模拟交易功能正在开发中...", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                _messageService.ShowMessage(
+                    "模拟交易功能正在开发中...",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开模拟交易窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void ShowLiveTradeWindow()
         {
-            // TODO: 实现实盘交易窗口
-            MessageBox.Show("实盘交易功能正在开发中...", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                _messageService.ShowMessage(
+                    "实盘交易功能正在开发中...",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开实盘交易窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void ShowMarketDataWindow()
         {
-            // TODO: 实现行情数据窗口
-            MessageBox.Show("行情数据功能正在开发中...", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                _messageService.ShowMessage(
+                    "行情数据功能正在开发中...",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开行情数据窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void ShowTradeHistoryWindow()
         {
-            // TODO: 实现交易记录窗口
-            MessageBox.Show("交易记录功能正在开发中...", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
-        private void ShowOrderWindow()
-        {
-            var window = new TCClient.Views.OrderWindow { Owner = System.Windows.Application.Current.MainWindow };
-            window.ShowDialog();
+            try
+            {
+                _messageService.ShowMessage(
+                    "交易记录功能正在开发中...",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开交易历史窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         private void ShowRanking()
         {
-            CurrentView = new RankingView();
-            StatusMessage = "显示涨跌幅排行榜";
+            try
+            {
+                CurrentView = new RankingView();
+                StatusMessage = "显示涨跌幅排行榜";
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowRanking), ex);
+                _messageService.ShowMessage(
+                    $"显示排行榜失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
-        public void UpdateCurrentAccountIdDisplay()
+        public async Task UpdateCurrentAccountIdDisplay()
         {
-            var id = TCClient.Utils.AppSession.CurrentAccountId;
-            if (id > 0)
-                CurrentAccountIdDisplay = $"当前账户ID：{id}";
-            else
-                CurrentAccountIdDisplay = "未绑定账户，请在菜单-设置中进行账户绑定";
+            try
+            {
+                var accounts = await _userService.GetTradingAccountsAsync();
+                if (accounts.Any())
+                {
+                    var defaultAccount = accounts.FirstOrDefault(a => a.IsDefaultAccount);
+                    if (defaultAccount != null)
+                    {
+                        // 如果有默认账户，显示默认账户信息
+                        CurrentAccountIdDisplay = $"当前账户ID：{defaultAccount.Id}";
+                        if (SelectedAccount == null || SelectedAccount.Id != defaultAccount.Id)
+                        {
+                            // 如果当前选择的不是默认账户，自动切换到默认账户
+                            SelectedAccount = defaultAccount;
+                            AppSession.CurrentAccountId = defaultAccount.Id;
+                            StatusMessage = $"已自动选择默认账户：{defaultAccount.AccountName}";
+                        }
+                    }
+                    else
+                    {
+                        // 如果没有默认账户但有其他账户
+                        var currentId = AppSession.CurrentAccountId;
+                        if (currentId > 0)
+                        {
+                            CurrentAccountIdDisplay = $"当前账户ID：{currentId}";
+                        }
+                        else
+                        {
+                            // 如果没有选择任何账户，选择第一个
+                            var firstAccount = accounts.First();
+                            SelectedAccount = firstAccount;
+                            AppSession.CurrentAccountId = firstAccount.Id;
+                            CurrentAccountIdDisplay = $"当前账户ID：{firstAccount.Id}";
+                            StatusMessage = "已选择第一个可用账户";
+                        }
+                    }
+                }
+                else
+                {
+                    // 如果没有任何账户，显示添加账户提示
+                    CurrentAccountIdDisplay = "请添加交易账户";
+                    StatusMessage = "未配置交易账户";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"更新账户显示失败: {ex.Message}");
+                CurrentAccountIdDisplay = "获取账户信息失败";
+                StatusMessage = $"获取账户信息失败：{ex.Message}";
+            }
+        }
+
+        private async Task UpdateStatusBarInfoAsync(string username, string database, string connectionStatus)
+        {
+            try
+            {
+                // 更新基本连接信息
+                // 如果数据库已连接，说明用户已登录
+                bool isConnected = !string.IsNullOrEmpty(database) && database != "未连接";
+                CurrentUser = isConnected ? username : "未登录";
+                CurrentDatabase = isConnected ? "已连接" : "未连接";
+                ConnectionStatus = isConnected ? "已连接" : "未连接";
+
+                // 更新账户信息
+                if (SelectedAccount != null)
+                {
+                    CurrentAccount = SelectedAccount.AccountName;
+                    await UpdateCurrentAccountIdDisplay();
+                    
+                    // 如果有持仓，显示持仓信息
+                    if (Positions.Any())
+                    {
+                        var positionInfo = string.Join(", ", Positions.Select(p => 
+                            $"{p.Contract} {p.Direction} {p.Quantity}手"));
+                        StatusMessage = $"当前持仓: {positionInfo}";
+                    }
+                    else
+                    {
+                        StatusMessage = $"当前账户: {SelectedAccount.AccountName}";
+                    }
+                }
+                else
+                {
+                    CurrentAccount = "未选择账户";
+                    CurrentAccountIdDisplay = "请选择交易账户";
+                    StatusMessage = "请选择一个交易账户";
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"更新状态栏信息时发生错误: {ex.Message}");
+                StatusMessage = $"更新状态栏信息失败: {ex.Message}";
+            }
+        }
+
+        public async Task UpdateStatusBarInfo(string username, string database, string connectionStatus)
+        {
+            await UpdateStatusBarInfoAsync(username, database, connectionStatus);
+        }
+
+        private async void ShowSwitchAccountDialog()
+        {
+            try
+            {
+                var accounts = await _userService.GetTradingAccountsAsync();
+                if (!accounts.Any())
+                {
+                    _messageService.ShowMessage(
+                        "请先在账户管理中配置交易账户",
+                        "提示",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                var dialog = new AccountSelectionDialog(accounts)
+                {
+                    Owner = Application.Current.MainWindow
+                };
+
+                if (dialog.ShowDialog() == true && dialog.SelectedAccount != null)
+                {
+                    // 更新当前账户
+                    SelectedAccount = dialog.SelectedAccount;
+                    
+                    // 设置当前账户ID
+                    AppSession.CurrentAccountId = dialog.SelectedAccount.Id;
+                    
+                    // 更新状态栏显示
+                    CurrentAccount = dialog.SelectedAccount.AccountName;
+                    await UpdateCurrentAccountIdDisplay();
+                    
+                    // 重新加载账户数据
+                    LoadAccountData();
+                    
+                    _messageService.ShowMessage(
+                        $"已切换到账户：{dialog.SelectedAccount.AccountName}",
+                        "提示",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowSwitchAccountDialog), ex);
+                _messageService.ShowMessage(
+                    $"切换账户失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowOrderWindow()
+        {
+            try
+            {
+                if (SelectedAccount == null)
+                {
+                    _messageService.ShowMessage(
+                        "请先选择一个交易账户",
+                        "提示",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                var services = ((App)Application.Current).Services;
+                var orderViewModel = services.GetRequiredService<OrderViewModel>();
+                var exchangeServiceFactory = services.GetRequiredService<IExchangeServiceFactory>();
+                var exchangeService = exchangeServiceFactory.CreateExchangeService(SelectedAccount);
+
+                var window = new OrderWindow(orderViewModel, exchangeService, SelectedAccount.Id)
+                {
+                    Owner = Application.Current.MainWindow
+                };
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowOrderWindow), ex);
+                _messageService.ShowMessage(
+                    $"打开下单窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private static void LogToFile(string message)
+        {
+            try
+            {
+                var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                var logMessage = $"[{timestamp}] {message}{Environment.NewLine}";
+                File.AppendAllText(LogFilePath, logMessage);
+            }
+            catch
+            {
+                // 忽略日志写入失败
+            }
+        }
+
+        private static void LogMenuError(string methodName, Exception ex)
+        {
+            try
+            {
+                var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                var logMessage = $"[{timestamp}] 菜单方法 {methodName} 执行失败: {ex.Message}\n" +
+                               $"异常类型: {ex.GetType().FullName}\n" +
+                               $"堆栈跟踪: {ex.StackTrace}\n" +
+                               $"内部异常: {ex.InnerException?.Message}\n" +
+                               $"{new string('-', 80)}\n";
+                File.AppendAllText(MenuLogFilePath, logMessage);
+            }
+            catch
+            {
+                // 忽略日志写入失败
+            }
         }
     }
 } 
