@@ -192,12 +192,22 @@ public partial class App : Application
             LogManager.Log("App", "主窗口已设置为Current.MainWindow");
             
             // 创建并显示登录窗口
-            var loginWindow = _serviceProvider.GetRequiredService<LoginWindow>();
-            loginWindow.Owner = null; // 确保登录窗口没有所有者
-            
             try
             {
-                LogManager.Log("App", "显示登录窗口");
+                LogManager.Log("App", "开始创建登录窗口");
+                var loginWindow = _serviceProvider.GetRequiredService<LoginWindow>();
+                LogManager.Log("App", "登录窗口创建成功");
+                
+                // 确保登录窗口正确显示
+                loginWindow.Owner = null;
+                loginWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                loginWindow.Topmost = false; // 不要设置为最顶层，可能会有问题
+                loginWindow.ShowInTaskbar = true; // 显示在任务栏
+                loginWindow.WindowState = WindowState.Normal;
+                
+                LogManager.Log("App", "准备显示登录窗口");
+                
+                // 直接显示模态对话框，ShowDialog会自动显示窗口
                 var result = loginWindow.ShowDialog();
                 LogManager.Log("App", $"登录窗口关闭，结果: {result}");
 

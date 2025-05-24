@@ -234,7 +234,7 @@ namespace TCClient.ViewModels
         public bool HasOpenPush => PushSummary != null;
 
         public decimal TotalFloatingPnL => PushSummary?.Orders?.Sum(o => o.FloatingPnL ?? 0m) ?? 0m;
-        public decimal TotalRealPnL => PushSummary?.Orders?.Sum(o => o.RealPnL ?? 0m) ?? 0m;
+        public decimal TotalRealPnL => PushSummary?.Orders?.Sum(o => o.RealProfit ?? 0m) ?? 0m;
 
         public ICommand QueryContractCommand { get; }
         public ICommand PlaceOrderCommand { get; }
@@ -251,6 +251,14 @@ namespace TCClient.ViewModels
         }
 
         private readonly ILogger<OrderViewModel> _logger;
+
+        // 实现 INotifyPropertyChanged 接口
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
 
         public OrderViewModel(
             IDatabaseService databaseService,
@@ -275,7 +283,7 @@ namespace TCClient.ViewModels
             _exchangeService = GetExchangeService();
             
             // 启动账户信息更新
-            StartAccountInfoUpdate();
+            _ = Task.Run(() => StartAccountInfoUpdate());
         }
 
         // 添加辅助方法处理合约名称
@@ -326,7 +334,7 @@ namespace TCClient.ViewModels
                 if (PushSummary != null)
                 {
                     _logger.LogInformation("推仓信息加载成功 - 推仓ID: {pushId}, 订单数: {orderCount}, 总浮动盈亏: {totalFloatingPnL:N2}, 总实际盈亏: {totalRealPnL:N2}",
-                        PushSummary.PushId, PushSummary.Orders?.Count ?? 0, PushSummary.Orders?.Sum(o => o.FloatingPnL ?? 0m), PushSummary.Orders?.Sum(o => o.RealPnL ?? 0m));
+                        PushSummary.PushId, PushSummary.Orders?.Count ?? 0, PushSummary.Orders?.Sum(o => o.FloatingPnL ?? 0m), PushSummary.Orders?.Sum(o => o.RealProfit ?? 0m));
 
                     // 更新持仓订单列表
                     UpdateRelatedOrders();
@@ -368,7 +376,7 @@ namespace TCClient.ViewModels
                         OpenPrice = order.EntryPrice,
                         ClosePrice = order.CurrentPrice ?? order.EntryPrice,
                         FloatingPnL = order.FloatingPnL ?? 0m,
-                        RealPnL = order.RealPnL ?? 0m,
+                        RealProfit = order.RealProfit ?? 0m,
                         Quantity = order.Quantity,
                         StopLossPrice = order.InitialStopLoss,
                         LastUpdateTime = order.LastUpdateTime ?? DateTime.Now
@@ -411,15 +419,8 @@ namespace TCClient.ViewModels
                 }
                 else
                 {
-                    // 尝试获取合约信息
                     try
                     {
-                        // TODO: 获取更多合约信息，如最大杠杆、最小交易金额等
-                        // 这里暂时使用模拟数据
-            MaxLeverage = 20;
-            MinTradeAmount = 10;
-            MinTradeUnit = 0.001m;
-                        
                         // 获取当前价格，使用带usdt后缀的合约名称
                         var ticker = await exchangeService.GetTickerAsync(GetFullContractName());
                         if (ticker != null)
@@ -434,9 +435,9 @@ namespace TCClient.ViewModels
                 }
                 
                 // 启动价格更新定时器
-            StartTickTimer();
-            
-            // 加载推仓信息
+                await StartTickTimer();
+                
+                // 加载推仓信息
                 await LoadPushSummaryInfo();
             }
             catch (Exception ex)
@@ -550,11 +551,6 @@ namespace TCClient.ViewModels
                         order.Direction, 
                         order.Quantity);
 
-                    _logger.LogInformation("订单当前值 - 最新价: {currentPrice}, 浮动盈亏: {floatingPnL}, 实际盈亏: {realPnL}", 
-                        order.CurrentPrice ?? 0m, 
-                        order.FloatingPnL ?? 0m, 
-                        order.RealPnL ?? 0m);
-
                     if (order.Status?.ToLower() != "open")
                     {
                         _logger.LogInformation("订单 {orderId} 状态不是open，跳过更新", order.OrderId);
@@ -572,15 +568,43 @@ namespace TCClient.ViewModels
                     {
                         // 多单：浮动盈亏 = (最新价 - 开仓价) * 数量
                         floatingPnL = (latestPrice - order.EntryPrice) * quantity;
-                        // 多单：实际盈亏 = (止损价 - 开仓价) * 数量
-                        realPnL = (order.CurrentStopLoss - order.EntryPrice) * quantity;
+                        // 多单：实际盈亏 = (开仓价 - 初始止损价) * 数量
+                        realPnL = (order.EntryPrice - order.InitialStopLoss) * quantity;
+                        
+                        // 更新最高价格：对于多单，记录开仓以来的最高价格
+                        if (order.HighestPrice == null || latestPrice > order.HighestPrice)
+                        {
+                            order.HighestPrice = latestPrice;
+                            _logger.LogInformation("订单 {orderId} 多单最高价格更新为: {highestPrice}", order.OrderId, latestPrice);
+                        }
+                        
+                        // 更新最大浮动盈利：记录开仓以来的最大浮动盈利
+                        if (order.MaxFloatingProfit == null || floatingPnL > order.MaxFloatingProfit)
+                        {
+                            order.MaxFloatingProfit = floatingPnL;
+                            _logger.LogInformation("订单 {orderId} 最大浮动盈利更新为: {maxFloatingProfit}", order.OrderId, floatingPnL);
+                        }
                     }
                     else if (order.Direction?.ToLower() == "sell")
                     {
                         // 空单：浮动盈亏 = (开仓价 - 最新价) * 数量
                         floatingPnL = (order.EntryPrice - latestPrice) * quantity;
-                        // 空单：实际盈亏 = (开仓价 - 止损价) * 数量
-                        realPnL = (order.EntryPrice - order.CurrentStopLoss) * quantity;
+                        // 空单：实际盈亏 = (初始止损价 - 开仓价) * 数量
+                        realPnL = (order.InitialStopLoss - order.EntryPrice) * quantity;
+                        
+                        // 更新最高价格：对于空单，记录开仓以来的最低价格（对空单来说最低价格是最有利的）
+                        if (order.HighestPrice == null || latestPrice < order.HighestPrice)
+                        {
+                            order.HighestPrice = latestPrice;
+                            _logger.LogInformation("订单 {orderId} 空单最有利价格更新为: {lowestPrice}", order.OrderId, latestPrice);
+                        }
+                        
+                        // 更新最大浮动盈利：记录开仓以来的最大浮动盈利
+                        if (order.MaxFloatingProfit == null || floatingPnL > order.MaxFloatingProfit)
+                        {
+                            order.MaxFloatingProfit = floatingPnL;
+                            _logger.LogInformation("订单 {orderId} 最大浮动盈利更新为: {maxFloatingProfit}", order.OrderId, floatingPnL);
+                        }
                     }
 
                     _logger.LogInformation("订单 {orderId} 计算值 - 数量: {quantity}, 浮动盈亏: {floatingPnL}, 实际盈亏: {realPnL}", 
@@ -592,29 +616,49 @@ namespace TCClient.ViewModels
                     // 检查是否有变化
                     bool priceChanged = Math.Abs((order.CurrentPrice ?? 0m) - latestPrice) > 0.0001m;
                     bool floatingPnLChanged = Math.Abs((order.FloatingPnL ?? 0m) - floatingPnL) > 0.0001m;
-                    bool realPnLChanged = Math.Abs((order.RealPnL ?? 0m) - realPnL) > 0.0001m;
-
-                    if (priceChanged || floatingPnLChanged || realPnLChanged)
+                    bool realPnLChanged = Math.Abs((order.RealProfit ?? 0m) - realPnL) > 0.0001m;
+                    
+                    // 检查最高价格是否有更新（只有当实际发生更新时才标记为已变化）
+                    bool highestPriceUpdated = false;
+                    if (order.Direction?.ToLower() == "buy")
                     {
-                        _logger.LogInformation("订单 {orderId} 需要更新 - 价格变化: {priceChanged}, 浮动盈亏变化: {floatingPnLChanged}, 实际盈亏变化: {realPnLChanged}", 
+                        highestPriceUpdated = (order.HighestPrice == null || latestPrice > order.HighestPrice);
+                    }
+                    else if (order.Direction?.ToLower() == "sell")
+                    {
+                        highestPriceUpdated = (order.HighestPrice == null || latestPrice < order.HighestPrice);
+                    }
+                    
+                    // 检查最大浮动盈利是否有更新
+                    bool maxFloatingProfitUpdated = (order.MaxFloatingProfit == null || floatingPnL > order.MaxFloatingProfit);
+
+                    if (priceChanged || floatingPnLChanged || realPnLChanged || highestPriceUpdated || maxFloatingProfitUpdated)
+                    {
+                        _logger.LogInformation("订单 {orderId} 需要更新 - 价格变化: {priceChanged}, 浮动盈亏变化: {floatingPnLChanged}, 实际盈亏变化: {realPnLChanged}, 最高价格更新: {highestPriceUpdated}, 最大浮动盈利更新: {maxFloatingProfitUpdated}", 
                             order.OrderId, 
                             priceChanged, 
                             floatingPnLChanged, 
-                            realPnLChanged);
+                            realPnLChanged,
+                            highestPriceUpdated,
+                            maxFloatingProfitUpdated);
 
-                        _logger.LogInformation("更新前 - 最新价: {currentPrice}, 浮动盈亏: {floatingPnL}, 实际盈亏: {realPnL}", 
+                        _logger.LogInformation("更新前 - 最新价: {currentPrice}, 浮动盈亏: {floatingPnL}, 实际盈亏: {realPnL}, 最高价: {highestPrice}, 最大浮动盈利: {maxFloatingProfit}", 
                             order.CurrentPrice ?? 0m, 
                             order.FloatingPnL ?? 0m, 
-                            order.RealPnL ?? 0m);
+                            order.RealProfit ?? 0m,
+                            order.HighestPrice ?? 0m,
+                            order.MaxFloatingProfit ?? 0m);
 
-                        _logger.LogInformation("更新后 - 最新价: {latestPrice}, 浮动盈亏: {floatingPnL}, 实际盈亏: {realPnL}", 
+                        _logger.LogInformation("更新后 - 最新价: {latestPrice}, 浮动盈亏: {floatingPnL}, 实际盈亏: {realPnL}, 最高价: {highestPrice}, 最大浮动盈利: {maxFloatingProfit}", 
                             latestPrice, 
                             floatingPnL, 
-                            realPnL);
+                            realPnL,
+                            order.HighestPrice ?? 0m,
+                            order.MaxFloatingProfit ?? 0m);
 
                         order.CurrentPrice = latestPrice;
                         order.FloatingPnL = floatingPnL;
-                        order.RealPnL = realPnL;
+                        order.RealProfit = realPnL;
                         order.LastUpdateTime = DateTime.Now;
                         ordersToUpdate.Add(order);
                         hasChanges = true;
@@ -771,30 +815,11 @@ namespace TCClient.ViewModels
 
             TCClient.Utils.AppSession.Log($"[条件单] 创建条件单: {contract}, 触发价格: {TriggerPrice}, 类型: {ConditionalOrderType}, 方向: {conditionalOrder.Direction}");
             
-            // 创建模拟订单作为条件单的占位符
-            var simulationOrder = new SimulationOrder
-            {
-                OrderId = Guid.NewGuid().ToString(),
-                AccountId = accountId,
-                Contract = ContractName, // 使用原始合约名称
-                ContractSize = 1m,
-                Direction = conditionalOrder.Direction.ToLower(),
-                Quantity = (float)conditionalOrder.Quantity,
-                EntryPrice = TriggerPrice,
-                InitialStopLoss = conditionalOrder.StopLossPrice ?? 0m,
-                CurrentStopLoss = conditionalOrder.StopLossPrice ?? 0m,
-                Leverage = Convert.ToInt32(Math.Round((double)conditionalOrder.Leverage)),
-                Margin = conditionalOrder.Quantity * TriggerPrice / conditionalOrder.Leverage,
-                TotalValue = conditionalOrder.Quantity * TriggerPrice,
-                Status = "pending",
-                OpenTime = DateTime.Now
-            };
-
             try
             {
-                // 插入模拟订单
-                long orderId = await _databaseService.InsertSimulationOrderAsync(simulationOrder);
-                TCClient.Utils.AppSession.Log($"[条件单] 创建成功，订单ID: {orderId}");
+                // 插入条件单到 conditional_orders 表
+                long conditionalOrderId = await _databaseService.InsertConditionalOrderAsync(conditionalOrder);
+                TCClient.Utils.AppSession.Log($"[条件单] 创建成功，条件单ID: {conditionalOrderId}");
 
                 _messageService.ShowMessage("条件单创建成功！", "提示", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
@@ -818,52 +843,120 @@ namespace TCClient.ViewModels
             else
             {
                 TCClient.Utils.AppSession.Log($"[下单] 已存在open推仓，推仓ID={pushInfo.Id}");
-                }
+            }
 
-                // 2. 插入订单
-                var order = new SimulationOrder
-                {
-                    OrderId = Guid.NewGuid().ToString(),
-                    AccountId = accountId,
+            // 2. 插入订单
+            var order = new SimulationOrder
+            {
+                OrderId = Guid.NewGuid().ToString(),
+                AccountId = accountId,
                 Contract = ContractName, // 使用原始合约名称
                 ContractSize = 1m,
-                    Direction = OrderDirection == "多" ? "buy" : "sell",
+                Direction = OrderDirection == "多" ? "buy" : "sell",
                 Quantity = (float)OrderQuantity,
-                    EntryPrice = LatestPrice,
+                EntryPrice = LatestPrice,
                 InitialStopLoss = StopLossPrice,
                 CurrentStopLoss = StopLossPrice,
                 Leverage = Convert.ToInt32(Math.Round((double)Leverage)),
                 Margin = OrderQuantity * LatestPrice / Leverage,
                 TotalValue = OrderQuantity * LatestPrice,
-                    Status = "open",
-                    OpenTime = DateTime.Now
-                };
-                TCClient.Utils.AppSession.Log("[下单] 开始插入订单...");
-                long orderId = await _databaseService.InsertSimulationOrderAsync(order);
-                TCClient.Utils.AppSession.Log($"[下单] 订单插入成功，订单ID={orderId}");
+                Status = "open",
+                OpenTime = DateTime.Now
+            };
+            TCClient.Utils.AppSession.Log("[下单] 开始插入订单...");
+            long orderId = await _databaseService.InsertSimulationOrderAsync(order);
+            TCClient.Utils.AppSession.Log($"[下单] 订单插入成功，订单ID={orderId}");
 
-                // 3. 插入推仓-订单关联
-                TCClient.Utils.AppSession.Log($"[下单] 插入推仓-订单关联，推仓ID={pushInfo.Id}，订单ID={orderId}");
-                await _databaseService.InsertPushOrderRelAsync(pushInfo.Id, orderId);
-                TCClient.Utils.AppSession.Log("[下单] 推仓-订单关联插入成功");
+            // 3. 插入推仓-订单关联
+            TCClient.Utils.AppSession.Log($"[下单] 插入推仓-订单关联，推仓ID={pushInfo.Id}，订单ID={orderId}");
+            await _databaseService.InsertPushOrderRelAsync(pushInfo.Id, orderId);
+            TCClient.Utils.AppSession.Log("[下单] 推仓-订单关联插入成功");
 
-                _messageService.ShowMessage("下单成功！", "提示", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            _messageService.ShowMessage("下单成功！", "提示", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             TCClient.Utils.AppSession.Log("[下单] 市价下单成功");
         }
 
         public void UpdateKLinePeriod(string period)
         {
-            // 更新K线图周期
-            if (KLineChartControl != null)
-            {
-                KLineChartControl.UpdatePeriod(period);
-            }
+            _logger.LogInformation("更新K线周期: {period}", period);
         }
 
-        public event PropertyChangedEventHandler? PropertyChanged;
-        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        /// <summary>
+        /// 演示如何使用最高价格和最大浮动盈利字段实现交易策略
+        /// 这个方法展示了几种常见的策略应用场景
+        /// </summary>
+        /// <param name="order">订单对象</param>
+        /// <param name="currentPrice">当前价格</param>
+        /// <returns>策略建议：Hold-持有, TakeProfit-止盈, AdjustStopLoss-调整止损</returns>
+        public string EvaluateStrategyDecision(SimulationOrder order, decimal currentPrice)
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            if (order == null || order.HighestPrice == null || order.MaxFloatingProfit == null)
+                return "Hold";
+
+            bool isLong = order.Direction?.ToLower() == "buy";
+            decimal quantity = (decimal)order.Quantity;
+            decimal currentFloatingPnL = isLong ? 
+                (currentPrice - order.EntryPrice) * quantity : 
+                (order.EntryPrice - currentPrice) * quantity;
+
+            // 策略1：回撤止盈策略
+            // 当价格从最高点回撤超过一定比例时，考虑止盈
+            decimal drawdownPercentage = 0;
+            if (isLong && order.HighestPrice > 0)
+            {
+                drawdownPercentage = (order.HighestPrice.Value - currentPrice) / order.HighestPrice.Value;
+            }
+            else if (!isLong && order.HighestPrice > 0)
+            {
+                drawdownPercentage = (currentPrice - order.HighestPrice.Value) / order.HighestPrice.Value;
+            }
+
+            if (drawdownPercentage > 0.05m) // 回撤超过5%
+            {
+                _logger.LogInformation("订单 {orderId} 触发回撤止盈策略 - 回撤比例: {drawdownPercentage:P2}", 
+                    order.OrderId, drawdownPercentage);
+                return "TakeProfit";
+            }
+
+            // 策略2：浮盈保护策略
+            // 当浮动盈利从最大值回撤超过一定比例时，考虑止盈
+            if (order.MaxFloatingProfit > 0)
+            {
+                decimal profitDrawdown = (order.MaxFloatingProfit.Value - currentFloatingPnL) / order.MaxFloatingProfit.Value;
+                if (profitDrawdown > 0.3m) // 浮盈回撤超过30%
+                {
+                    _logger.LogInformation("订单 {orderId} 触发浮盈保护策略 - 浮盈回撤: {profitDrawdown:P2}", 
+                        order.OrderId, profitDrawdown);
+                    return "TakeProfit";
+                }
+            }
+
+            // 策略3：追踪止损策略
+            // 根据最高价格动态调整止损位置
+            if (order.MaxFloatingProfit > 100m) // 最大浮盈超过100元时启用追踪止损
+            {
+                decimal trailingStopDistance = isLong ? 
+                    order.HighestPrice.Value * 0.03m : // 多单：从最高价向下3%
+                    order.HighestPrice.Value * 0.03m;  // 空单：从最低价向上3%
+
+                decimal newStopLoss = isLong ?
+                    order.HighestPrice.Value - trailingStopDistance :
+                    order.HighestPrice.Value + trailingStopDistance;
+
+                // 只有当新止损价格更有利时才调整
+                bool shouldAdjustStopLoss = isLong ?
+                    newStopLoss > order.CurrentStopLoss :
+                    newStopLoss < order.CurrentStopLoss;
+
+                if (shouldAdjustStopLoss)
+                {
+                    _logger.LogInformation("订单 {orderId} 建议调整追踪止损 - 从 {oldStopLoss} 调整到 {newStopLoss}", 
+                        order.OrderId, order.CurrentStopLoss, newStopLoss);
+                    return "AdjustStopLoss";
+                }
+            }
+
+            return "Hold";
         }
 
         private void StartAccountInfoUpdate()
@@ -928,7 +1021,7 @@ namespace TCClient.ViewModels
         public decimal OpenPrice { get; set; }
         public decimal ClosePrice { get; set; }
         public decimal FloatingPnL { get; set; }
-        public decimal RealPnL { get; set; }
+        public decimal RealProfit { get; set; }
         public float Quantity { get; set; }
         public decimal StopLossPrice { get; set; }
         public DateTime LastUpdateTime { get; set; }

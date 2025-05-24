@@ -29,6 +29,5 @@ namespace TCClient.Models
         public decimal? FloatingPnL { get; set; }
         public decimal? CurrentPrice { get; set; }
         public DateTime? LastUpdateTime { get; set; }
-        public decimal? RealPnL { get; set; }
     }
 } 

@@ -1523,12 +1523,12 @@ namespace TCClient.Services
                             order_id, account_id, contract, contract_size,
                             direction, quantity, entry_price, initial_stop_loss,
                             current_stop_loss, leverage, margin, total_value,
-                            status, open_time, real_pnl, floating_pnl, current_price, last_update_time
+                            status, open_time, real_profit, floating_pnl, current_price, last_update_time
                         ) VALUES (
                             @order_id, @account_id, @contract, @contract_size,
                             @direction, @quantity, @entry_price, @initial_stop_loss,
                             @current_stop_loss, @leverage, @margin, @total_value,
-                            @status, @open_time, @real_pnl, 0, @current_price, NOW()
+                            @status, @open_time, @real_profit, 0, @current_price, NOW()
                         );
                 SELECT LAST_INSERT_ID();";
 
@@ -1546,7 +1546,7 @@ namespace TCClient.Services
                     command.Parameters.AddWithValue("@total_value", order.TotalValue);
             command.Parameters.AddWithValue("@status", order.Status);
                     command.Parameters.AddWithValue("@open_time", order.OpenTime);
-                    command.Parameters.AddWithValue("@real_pnl", realPnL);
+                    command.Parameters.AddWithValue("@real_profit", realPnL);
                     command.Parameters.AddWithValue("@current_price", order.EntryPrice);
 
                     orderId = Convert.ToInt64(await command.ExecuteScalarAsync());
@@ -1755,8 +1755,7 @@ namespace TCClient.Services
                                 RealProfit = reader.IsDBNull(reader.GetOrdinal("real_profit")) ? null : (decimal?)reader.GetDecimal("real_profit"),
                                 FloatingPnL = reader.IsDBNull(reader.GetOrdinal("floating_pnl")) ? null : (decimal?)reader.GetDecimal("floating_pnl"),
                                 CurrentPrice = reader.IsDBNull(reader.GetOrdinal("current_price")) ? null : (decimal?)reader.GetDecimal("current_price"),
-                                LastUpdateTime = reader.IsDBNull(reader.GetOrdinal("last_update_time")) ? null : (DateTime?)reader.GetDateTime("last_update_time"),
-                                RealPnL = reader.IsDBNull(reader.GetOrdinal("real_pnl")) ? null : (decimal?)reader.GetDecimal("real_pnl")
+                                LastUpdateTime = reader.IsDBNull(reader.GetOrdinal("last_update_time")) ? null : (DateTime?)reader.GetDateTime("last_update_time")
                             });
                         }
                     }
@@ -1943,12 +1942,12 @@ namespace TCClient.Services
                                         order_id, account_id, contract, contract_size,
                                         direction, quantity, entry_price, initial_stop_loss,
                                         current_stop_loss, leverage, margin, total_value,
-                                        status, open_time, real_pnl
+                                        status, open_time, real_profit
                                     ) VALUES (
                                         @order_id, @account_id, @contract, @contract_size,
                                         @direction, @quantity, @entry_price, @initial_stop_loss,
                                         @current_stop_loss, @leverage, @margin, @total_value,
-                                        @status, @open_time, @real_pnl
+                                        @status, @open_time, @real_profit
                                     )";
 
                                     // 添加参数
@@ -1966,7 +1965,7 @@ namespace TCClient.Services
                                     command.Parameters.AddWithValue("@total_value", order.TotalValue);
                                     command.Parameters.AddWithValue("@status", order.Status);
                                     command.Parameters.AddWithValue("@open_time", order.OpenTime);
-                                    command.Parameters.AddWithValue("@real_pnl", DBNull.Value); // 添加real_pnl字段，初始化为NULL
+                                    command.Parameters.AddWithValue("@real_profit", DBNull.Value); // 添加real_profit字段，初始化为NULL
 
                                     await command.ExecuteNonQueryAsync(cancellationToken);
                             }
@@ -2115,8 +2114,7 @@ namespace TCClient.Services
                                     RealProfit = reader.IsDBNull(reader.GetOrdinal("real_profit")) ? 0m : reader.GetDecimal("real_profit"),
                                     FloatingPnL = reader.IsDBNull(reader.GetOrdinal("floating_pnl")) ? 0m : reader.GetDecimal("floating_pnl"),
                         CurrentPrice = reader.IsDBNull(reader.GetOrdinal("current_price")) ? null : (decimal?)reader.GetDecimal("current_price"),
-                        LastUpdateTime = reader.IsDBNull(reader.GetOrdinal("last_update_time")) ? null : (DateTime?)reader.GetDateTime("last_update_time"),
-                                    RealPnL = reader.IsDBNull(reader.GetOrdinal("real_profit")) ? 0m : reader.GetDecimal("real_profit")
+                        LastUpdateTime = reader.IsDBNull(reader.GetOrdinal("last_update_time")) ? null : (DateTime?)reader.GetDateTime("last_update_time")
                     };
                     summary.Orders.Add(order);
                                 LogManager.Log("Database", $"成功读取订单: ID={order.Id}, 状态={order.Status}, 数量={order.Quantity}");
@@ -2194,48 +2192,346 @@ namespace TCClient.Services
         {
             try
             {
-                LogManager.Log("Database", $"开始获取用户信息: {username}");
                 await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT id, username, password_hash, created_at FROM users WHERE username = @username";
+                        command.Parameters.AddWithValue("@username", username);
+
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync())
+                            {
+                                return new User
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    Username = reader.GetString("username"),
+                                    PasswordHash = reader.GetString("password_hash"),
+                                    CreatedAt = reader.GetDateTime("created_at")
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取用户信息失败");
+                throw;
+            }
+            
+            return null;
+        }
+
+        #region 条件单相关方法
+
+        /// <summary>
+        /// 插入条件单到数据库
+        /// </summary>
+        public async Task<long> InsertConditionalOrderAsync(ConditionalOrder order, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            INSERT INTO conditional_orders (
+                                account_id, symbol, direction, condition_type,
+                                trigger_price, quantity, leverage, stop_loss_price,
+                                status, create_time
+                            ) VALUES (
+                                @account_id, @symbol, @direction, @condition_type,
+                                @trigger_price, @quantity, @leverage, @stop_loss_price,
+                                @status, @create_time
+                            );
+                            SELECT LAST_INSERT_ID();";
+
+                        command.Parameters.AddWithValue("@account_id", order.AccountId);
+                        command.Parameters.AddWithValue("@symbol", order.Symbol);
+                        command.Parameters.AddWithValue("@direction", order.Direction);
+                        command.Parameters.AddWithValue("@condition_type", order.ConditionType.ToString());
+                        command.Parameters.AddWithValue("@trigger_price", order.TriggerPrice);
+                        command.Parameters.AddWithValue("@quantity", order.Quantity);
+                        command.Parameters.AddWithValue("@leverage", order.Leverage);
+                        command.Parameters.AddWithValue("@stop_loss_price", (object)order.StopLossPrice ?? DBNull.Value);
+                        command.Parameters.AddWithValue("@status", order.Status.ToString());
+                        command.Parameters.AddWithValue("@create_time", order.CreateTime);
+
+                        var result = await command.ExecuteScalarAsync(cancellationToken);
+                        return Convert.ToInt64(result);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "插入条件单失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 获取指定账户的条件单列表
+        /// </summary>
+        public async Task<List<ConditionalOrder>> GetConditionalOrdersAsync(long accountId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                var orders = new List<ConditionalOrder>();
                 
                 using (var connection = new MySqlConnection(_connectionString))
                 {
                     await connection.OpenAsync(cancellationToken);
                     using (var command = connection.CreateCommand())
                     {
-                        command.CommandText = "SELECT * FROM users WHERE username = @username";
-                        command.Parameters.AddWithValue("@username", username);
-                        LogManager.Log("Database", $"执行SQL: {command.CommandText}");
+                        command.CommandText = @"
+                            SELECT * FROM conditional_orders 
+                            WHERE account_id = @account_id 
+                            ORDER BY create_time DESC";
+                        command.Parameters.AddWithValue("@account_id", accountId);
 
                         using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                         {
-                            if (await reader.ReadAsync(cancellationToken))
+                            while (await reader.ReadAsync())
                             {
-                                var user = new User
+                                var order = new ConditionalOrder
                                 {
                                     Id = reader.GetInt64("id"),
-                                    Username = reader.GetString("username"),
-                                    Email = reader.IsDBNull(reader.GetOrdinal("email")) ? null : reader.GetString("email"),
-                                    LastLoginTime = reader.IsDBNull(reader.GetOrdinal("last_login_time")) ? null : (DateTime?)reader.GetDateTime("last_login_time"),
-                                    Status = reader.GetInt32("status"),
+                                    AccountId = reader.GetInt64("account_id"),
+                                    Symbol = reader.GetString("symbol"),
+                                    Direction = reader.GetString("direction"),
+                                    ConditionType = Enum.Parse<ConditionalOrderType>(reader.GetString("condition_type")),
+                                    TriggerPrice = reader.GetDecimal("trigger_price"),
+                                    Quantity = reader.GetDecimal("quantity"),
+                                    Leverage = reader.GetInt32("leverage"),
+                                    StopLossPrice = reader.IsDBNull(reader.GetOrdinal("stop_loss_price")) ? null : (decimal?)reader.GetDecimal("stop_loss_price"),
+                                    Status = Enum.Parse<ConditionalOrderStatus>(reader.GetString("status")),
+                                    ExecutionOrderId = reader.IsDBNull(reader.GetOrdinal("execution_order_id")) ? null : reader.GetString("execution_order_id"),
+                                    ErrorMessage = reader.IsDBNull(reader.GetOrdinal("error_message")) ? null : reader.GetString("error_message"),
                                     CreateTime = reader.GetDateTime("create_time"),
+                                    TriggerTime = reader.IsDBNull(reader.GetOrdinal("trigger_time")) ? null : (DateTime?)reader.GetDateTime("trigger_time"),
+                                    ExecutionTime = reader.IsDBNull(reader.GetOrdinal("execution_time")) ? null : (DateTime?)reader.GetDateTime("execution_time"),
                                     UpdateTime = reader.GetDateTime("update_time")
                                 };
-                                
-                                LogManager.Log("Database", $"成功获取用户信息: ID={user.Id}, 用户名={user.Username}");
-                                return user;
+                                orders.Add(order);
                             }
                         }
                     }
                 }
                 
-                LogManager.Log("Database", $"未找到用户: {username}");
-                return null;
+                return orders;
             }
             catch (Exception ex)
             {
-                LogManager.LogException("Database", ex, $"获取用户 {username} 信息失败");
+                LogManager.LogException("Database", ex, "获取条件单列表失败");
                 throw;
             }
         }
+
+        /// <summary>
+        /// 获取所有等待中的条件单
+        /// </summary>
+        public async Task<List<ConditionalOrder>> GetWaitingConditionalOrdersAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                var orders = new List<ConditionalOrder>();
+                
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT * FROM conditional_orders 
+                            WHERE status = 'WAITING' 
+                            ORDER BY create_time ASC";
+
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                var order = new ConditionalOrder
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    AccountId = reader.GetInt64("account_id"),
+                                    Symbol = reader.GetString("symbol"),
+                                    Direction = reader.GetString("direction"),
+                                    ConditionType = Enum.Parse<ConditionalOrderType>(reader.GetString("condition_type")),
+                                    TriggerPrice = reader.GetDecimal("trigger_price"),
+                                    Quantity = reader.GetDecimal("quantity"),
+                                    Leverage = reader.GetInt32("leverage"),
+                                    StopLossPrice = reader.IsDBNull(reader.GetOrdinal("stop_loss_price")) ? null : (decimal?)reader.GetDecimal("stop_loss_price"),
+                                    Status = Enum.Parse<ConditionalOrderStatus>(reader.GetString("status")),
+                                    ExecutionOrderId = reader.IsDBNull(reader.GetOrdinal("execution_order_id")) ? null : reader.GetString("execution_order_id"),
+                                    ErrorMessage = reader.IsDBNull(reader.GetOrdinal("error_message")) ? null : reader.GetString("error_message"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    TriggerTime = reader.IsDBNull(reader.GetOrdinal("trigger_time")) ? null : (DateTime?)reader.GetDateTime("trigger_time"),
+                                    ExecutionTime = reader.IsDBNull(reader.GetOrdinal("execution_time")) ? null : (DateTime?)reader.GetDateTime("execution_time"),
+                                    UpdateTime = reader.GetDateTime("update_time")
+                                };
+                                orders.Add(order);
+                            }
+                        }
+                    }
+                }
+                
+                return orders;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取等待中的条件单失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 更新条件单状态
+        /// </summary>
+        public async Task<bool> UpdateConditionalOrderStatusAsync(long orderId, ConditionalOrderStatus status, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE conditional_orders 
+                            SET status = @status, 
+                                trigger_time = CASE WHEN @status = 'TRIGGERED' THEN NOW() ELSE trigger_time END,
+                                update_time = NOW()
+                            WHERE id = @id";
+
+                        command.Parameters.AddWithValue("@id", orderId);
+                        command.Parameters.AddWithValue("@status", status.ToString());
+
+                        var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                        return result > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "更新条件单状态失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 更新条件单为已执行状态
+        /// </summary>
+        public async Task<bool> UpdateConditionalOrderToExecutedAsync(long orderId, string executionOrderId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE conditional_orders 
+                            SET status = 'EXECUTED', 
+                                execution_order_id = @execution_order_id,
+                                execution_time = NOW(),
+                                update_time = NOW()
+                            WHERE id = @id";
+
+                        command.Parameters.AddWithValue("@id", orderId);
+                        command.Parameters.AddWithValue("@execution_order_id", executionOrderId);
+
+                        var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                        return result > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "更新条件单为已执行状态失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 更新条件单为失败状态
+        /// </summary>
+        public async Task<bool> UpdateConditionalOrderToFailedAsync(long orderId, string errorMessage, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE conditional_orders 
+                            SET status = 'FAILED', 
+                                error_message = @error_message,
+                                update_time = NOW()
+                            WHERE id = @id";
+
+                        command.Parameters.AddWithValue("@id", orderId);
+                        command.Parameters.AddWithValue("@error_message", errorMessage);
+
+                        var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                        return result > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "更新条件单为失败状态失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 取消条件单
+        /// </summary>
+        public async Task<bool> CancelConditionalOrderAsync(long orderId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE conditional_orders 
+                            SET status = 'CANCELLED', 
+                                update_time = NOW()
+                            WHERE id = @id AND status = 'WAITING'";
+
+                        command.Parameters.AddWithValue("@id", orderId);
+
+                        var result = await command.ExecuteNonQueryAsync(cancellationToken);
+                        return result > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "取消条件单失败");
+                throw;
+            }
+        }
+
+        #endregion
     }
-} 
+}

@@ -137,7 +137,7 @@
                             FontSize="14"
                             HorizontalAlignment="Left"
                             VerticalContentAlignment="Center"
-                            Text="{Binding OrderQuantity, UpdateSourceTrigger=PropertyChanged}"/>
+                            Text="{Binding OrderQuantity, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
 
                     <!-- 开仓价格 -->
                     <TextBlock Text="价格：" Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
@@ -356,6 +356,14 @@
                             <DataGridTextColumn Header="开仓价" Binding="{Binding EntryPrice, StringFormat={}{0:N2}}" Width="100"/>
                             <DataGridTextColumn Header="止损价" Binding="{Binding CurrentStopLoss, StringFormat={}{0:N2}}" Width="100"/>
                             <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat={}{0:N2}}" Width="100"/>
+                            <DataGridTextColumn Header="最高价" Binding="{Binding HighestPrice, StringFormat={}{0:N2}, TargetNullValue=--}" Width="100"/>
+                            <DataGridTextColumn Header="最大浮盈" Binding="{Binding MaxFloatingProfit, StringFormat={}{0:N2}, TargetNullValue=--}" Width="100">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{Binding MaxFloatingProfit, Converter={StaticResource PnLColorConverter}, TargetNullValue=White}"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
                             <DataGridTextColumn Header="浮动盈亏" Binding="{Binding FloatingPnL, StringFormat={}{0:N2}, TargetNullValue=0.00}" Width="100">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
@@ -363,10 +371,10 @@
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
-                            <DataGridTextColumn Header="实际盈亏" Binding="{Binding RealPnL, StringFormat={}{0:N2}, TargetNullValue=0.00}" Width="100">
+                            <DataGridTextColumn Header="实际盈亏" Binding="{Binding RealProfit, StringFormat={}{0:N2}, TargetNullValue=0.00}" Width="100">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="{Binding RealPnL, Converter={StaticResource PnLColorConverter}, TargetNullValue=White}"/>
+                                        <Setter Property="Foreground" Value="{Binding RealProfit, Converter={StaticResource PnLColorConverter}, TargetNullValue=White}"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>

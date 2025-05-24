@@ -73,5 +73,14 @@ namespace TCClient.Services
         // 用户-账户关联相关
         Task AddUserTradingAccountAsync(long userId, long accountId, bool isDefault, CancellationToken cancellationToken = default);
         Task SetUserDefaultAccountAsync(long userId, long accountId, CancellationToken cancellationToken = default);
+        
+        // 条件单相关
+        Task<long> InsertConditionalOrderAsync(ConditionalOrder order, CancellationToken cancellationToken = default);
+        Task<List<ConditionalOrder>> GetConditionalOrdersAsync(long accountId, CancellationToken cancellationToken = default);
+        Task<List<ConditionalOrder>> GetWaitingConditionalOrdersAsync(CancellationToken cancellationToken = default);
+        Task<bool> UpdateConditionalOrderStatusAsync(long orderId, ConditionalOrderStatus status, CancellationToken cancellationToken = default);
+        Task<bool> UpdateConditionalOrderToExecutedAsync(long orderId, string executionOrderId, CancellationToken cancellationToken = default);
+        Task<bool> UpdateConditionalOrderToFailedAsync(long orderId, string errorMessage, CancellationToken cancellationToken = default);
+        Task<bool> CancelConditionalOrderAsync(long orderId, CancellationToken cancellationToken = default);
     }
 } 

@@ -253,10 +253,7 @@ namespace TCClient.Services
         /// </summary>
         private async Task<List<ConditionalOrder>> GetWaitingConditionalOrdersAsync()
         {
-            // TODO: 实现从数据库获取等待中的条件单的逻辑
-            // 模拟数据
-            await Task.Delay(10);
-            return new List<ConditionalOrder>();
+            return await _databaseService.GetWaitingConditionalOrdersAsync();
         }
 
         /// <summary>
@@ -284,8 +281,7 @@ namespace TCClient.Services
         /// </summary>
         private async Task UpdateOrderStatusAsync(long orderId, ConditionalOrderStatus status)
         {
-            // TODO: 实现更新条件单状态的数据库操作
-            await Task.Delay(10);
+            await _databaseService.UpdateConditionalOrderStatusAsync(orderId, status);
             LogManager.Log("ConditionalOrderService", $"条件单 ID={orderId} 状态已更新为 {status}");
         }
 
@@ -294,8 +290,7 @@ namespace TCClient.Services
         /// </summary>
         private async Task UpdateOrderToExecutedAsync(long orderId, string executionOrderId)
         {
-            // TODO: 实现更新条件单为已执行状态的数据库操作
-            await Task.Delay(10);
+            await _databaseService.UpdateConditionalOrderToExecutedAsync(orderId, executionOrderId);
             LogManager.Log("ConditionalOrderService", $"条件单 ID={orderId} 状态已更新为已执行，关联订单ID={executionOrderId}");
         }
 
@@ -304,8 +299,7 @@ namespace TCClient.Services
         /// </summary>
         private async Task UpdateOrderToFailedAsync(long orderId, string errorMessage)
         {
-            // TODO: 实现更新条件单为失败状态的数据库操作
-            await Task.Delay(10);
+            await _databaseService.UpdateConditionalOrderToFailedAsync(orderId, errorMessage);
             LogManager.Log("ConditionalOrderService", $"条件单 ID={orderId} 状态已更新为失败，错误信息: {errorMessage}");
         }
 

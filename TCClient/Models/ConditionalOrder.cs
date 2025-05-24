@@ -36,22 +36,16 @@ namespace TCClient.Models
         public DateTime? ExecutionTime { get; set; }
         public DateTime UpdateTime { get; set; }
 
-        // 辅助属性，用于UI显示
+        // UI显示用的属性
         public string ConditionTypeDisplay => ConditionType == ConditionalOrderType.BREAK_UP ? "向上突破" : "向下突破";
-        public string StatusDisplay
+        public string StatusDisplay => Status switch
         {
-            get
-            {
-                return Status switch
-                {
-                    ConditionalOrderStatus.WAITING => "等待触发",
-                    ConditionalOrderStatus.TRIGGERED => "已触发",
-                    ConditionalOrderStatus.EXECUTED => "已执行",
-                    ConditionalOrderStatus.CANCELLED => "已取消",
-                    ConditionalOrderStatus.FAILED => "执行失败",
-                    _ => Status.ToString()
-                };
-            }
-        }
+            ConditionalOrderStatus.WAITING => "等待触发",
+            ConditionalOrderStatus.TRIGGERED => "已触发",
+            ConditionalOrderStatus.EXECUTED => "已执行",
+            ConditionalOrderStatus.CANCELLED => "已取消",
+            ConditionalOrderStatus.FAILED => "执行失败",
+            _ => Status.ToString()
+        };
     }
 } 

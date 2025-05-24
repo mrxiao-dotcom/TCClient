@@ -58,6 +58,14 @@
                             <DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="60"/>
                             <DataGridTextColumn Header="开仓价格" Binding="{Binding EntryPrice, StringFormat=N2}" Width="100"/>
                             <DataGridTextColumn Header="当前价格" Binding="{Binding CurrentPrice, StringFormat=N2}" Width="100"/>
+                            <DataGridTextColumn Header="最高价格" Binding="{Binding HighestPrice, StringFormat=N2, TargetNullValue=--}" Width="100"/>
+                            <DataGridTextColumn Header="最大浮盈" Binding="{Binding MaxFloatingProfit, StringFormat=N2, TargetNullValue=--}" Width="100">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{Binding MaxFloatingProfit, Converter={StaticResource PnLColorConverter}, TargetNullValue=White}"/>
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
                             <DataGridTextColumn Header="止损价格" Binding="{Binding CurrentStopLoss, StringFormat=N2}" Width="100"/>
                             <DataGridTextColumn Header="杠杆" Binding="{Binding Leverage}" Width="60"/>
                             <DataGridTextColumn Header="浮动盈亏" Binding="{Binding FloatingPnL, StringFormat=N2}" Width="100">

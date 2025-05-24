@@ -473,16 +473,34 @@ namespace TCClient.Services
                 {
                     try
                     {
-                        tickers.Add(new TickerInfo
+                        // 使用TryParse替代Parse，并提供默认值
+                        decimal lastPrice = 0m, bidPrice = 0m, askPrice = 0m, volume = 0m, priceChangePercent = 0m;
+                        
+                        // 安全地解析每个字段
+                        decimal.TryParse(item.LastPrice ?? "0", out lastPrice);
+                        decimal.TryParse(item.BidPrice ?? "0", out bidPrice);
+                        decimal.TryParse(item.AskPrice ?? "0", out askPrice);
+                        decimal.TryParse(item.Volume ?? "0", out volume);
+                        decimal.TryParse(item.PriceChangePercent ?? "0", out priceChangePercent);
+
+                        // 只有当价格有效时才添加ticker
+                        if (lastPrice > 0)
                         {
-                            Symbol = item.Symbol,
-                            LastPrice = decimal.Parse(item.LastPrice),
-                            BidPrice = decimal.Parse(item.BidPrice),
-                            AskPrice = decimal.Parse(item.AskPrice),
-                            Volume = decimal.Parse(item.Volume),
-                            Timestamp = DateTime.Now,
-                            PriceChangePercent = decimal.Parse(item.PriceChangePercent)
-                        });
+                            tickers.Add(new TickerInfo
+                            {
+                                Symbol = item.Symbol,
+                                LastPrice = lastPrice,
+                                BidPrice = bidPrice,
+                                AskPrice = askPrice,
+                                Volume = volume,
+                                Timestamp = DateTime.Now,
+                                PriceChangePercent = priceChangePercent
+                            });
+                        }
+                        else
+                        {
+                            Utils.LogManager.Log("BinanceExchange", $"跳过无效价格的合约 {item.Symbol}: LastPrice={item.LastPrice}");
+                        }
                     }
                     catch (Exception ex)
                     {

@@ -106,9 +106,15 @@ namespace TCClient.ViewModels
                     }
                 }
 
-                // TODO: 加载条件单 - 这里需要在IDatabaseService中实现GetConditionalOrdersAsync方法
-                // 目前只是创建一个空列表
-                // var conditionalOrders = await _databaseService.GetConditionalOrdersAsync(_accountId);
+                // 加载条件单
+                var conditionalOrders = await _databaseService.GetConditionalOrdersAsync(_accountId);
+                if (conditionalOrders != null)
+                {
+                    foreach (var order in conditionalOrders)
+                    {
+                        ConditionalOrders.Add(order);
+                    }
+                }
                 
                 // 更新UI显示
                 OnPropertyChanged(nameof(MarketOrders));

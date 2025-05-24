@@ -45,13 +45,13 @@ namespace TCClient.Services
 
         public LocalConfigService()
         {
-            string appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string appFolder = Path.Combine(appDataPath, "TCClient");
-            Directory.CreateDirectory(appFolder);
+            // 获取应用程序根目录
+            string appRootPath = AppDomain.CurrentDomain.BaseDirectory;
             
-            _configPath = Path.Combine(appFolder, "database_config.json");
-            _credentialsPath = Path.Combine(appFolder, "credentials.json");
-            _apiConfigPath = Path.Combine(appFolder, "api_config.json");
+            // 设置配置文件路径
+            _configPath = Path.Combine(appRootPath, "database_config.json");
+            _credentialsPath = Path.Combine(appRootPath, "credentials.json");
+            _apiConfigPath = Path.Combine(appRootPath, "api_config.json");
 
             _connections = new List<DatabaseConnection>();
             
