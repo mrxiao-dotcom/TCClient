@@ -50,7 +50,7 @@
             <GroupBox Grid.Column="0" Header="下单交易参数" Margin="0,0,10,0" MinHeight="600">
                 <Grid Margin="20">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="120"/> <!-- 固定左侧文字列宽度 -->
+                        <ColumnDefinition Width="120"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
@@ -312,6 +312,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="120"/>
@@ -337,10 +338,15 @@
                         <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding PushSummary.OpenOrderCount}" Margin="0,0,0,10" VerticalAlignment="Center" FontSize="14"/>
 
                         <!-- 第三行 -->
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="占用风险金：" Margin="0,0,5,0" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PushSummary.RiskAmount, StringFormat={}{0:N2}}" Margin="0,0,20,0" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock Grid.Row="2" Grid.Column="2" Text="可用风险金：" Margin="0,0,5,0" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding PushSummary.AvailableRiskAmount, StringFormat={}{0:N2}}" Margin="0,0,0,0" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="占用风险金：" Margin="0,0,5,10" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PushSummary.RiskAmount, StringFormat={}{0:N2}}" Margin="0,0,20,10" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="可用风险金：" Margin="0,0,5,10" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding PushSummary.AvailableRiskAmount, StringFormat={}{0:N2}}" Margin="0,0,0,10" VerticalAlignment="Center" FontSize="14"/>
+                        
+                        <!-- 第四行：可用风险金计算详情 -->
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="计算公式：" Margin="0,0,5,0" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="#888"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding PushSummary.AvailableRiskAmountFormula}" 
+                                   Margin="0,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="#888"/>
                     </Grid>
 
                     <!-- 订单列表 -->

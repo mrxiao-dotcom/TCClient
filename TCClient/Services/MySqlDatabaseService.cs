@@ -2123,10 +2123,14 @@ namespace TCClient.Services
                     }
                 }
 
-                // 第三个连接：获取可用风险金
+                // 第三个连接：计算可用风险金（新的计算规则）
                 using (var connection = new MySqlConnection(_connectionString))
                 {
                     await connection.OpenAsync();
+                    
+                    // 第一步：获取账户基本信息
+                    decimal equity = 0m;
+                    int opportunityCount = 0;
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = @"
@@ -2139,13 +2143,51 @@ namespace TCClient.Services
                         {
                             if (await reader.ReadAsync())
                             {
-                                var equity = reader.GetDecimal("equity");
-                                var opportunityCount = reader.GetInt32("opportunity_count");
-                                summary.AvailableRiskAmount = opportunityCount > 0 ? equity / opportunityCount : 0;
-                                LogManager.Log("Database", $"获取可用风险金: {summary.AvailableRiskAmount}");
+                                equity = reader.GetDecimal("equity");
+                                opportunityCount = reader.GetInt32("opportunity_count");
+                                LogManager.Log("Database", $"获取账户信息 - 权益: {equity}, 机会次数: {opportunityCount}");
                             }
                         }
                     }
+                    
+                    // 第二步：计算单笔可用风险金
+                    decimal singleRiskAmount = opportunityCount > 0 ? equity / opportunityCount : 0;
+                    LogManager.Log("Database", $"单笔可用风险金: {singleRiskAmount}");
+                    
+                    // 第三步：获取该合约所有推仓关联订单的累加实际盈亏
+                    decimal totalRealProfit = 0m;
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT SUM(COALESCE(o.real_profit, 0)) as total_real_profit
+                            FROM simulation_orders o
+                            INNER JOIN position_push_order_rel r ON o.id = r.order_id
+                            INNER JOIN position_push_info p ON r.push_id = p.id
+                            WHERE p.account_id = @accountId 
+                            AND p.contract = @contract";
+
+                        command.Parameters.AddWithValue("@accountId", accountId);
+                        command.Parameters.AddWithValue("@contract", contract);
+                        
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            if (await reader.ReadAsync() && !reader.IsDBNull(0))
+                            {
+                                totalRealProfit = reader.GetDecimal("total_real_profit");
+                            }
+                        }
+                    }
+                    
+                    LogManager.Log("Database", $"该合约累加实际盈亏: {totalRealProfit}");
+                    
+                    // 第四步：计算当前可用风险金 = 单笔可用风险金 + 累加实际盈亏
+                    summary.AvailableRiskAmount = singleRiskAmount + totalRealProfit;
+                    
+                    // 设置计算详情属性
+                    summary.SingleRiskAmount = singleRiskAmount;
+                    summary.AccumulatedRealProfit = totalRealProfit;
+                    
+                    LogManager.Log("Database", $"当前可用风险金计算: {singleRiskAmount} + {totalRealProfit} = {summary.AvailableRiskAmount}");
                 }
 
                 // 计算占用风险金
@@ -2187,6 +2229,66 @@ namespace TCClient.Services
             return 0;
         }
 
+        /// <summary>
+        /// 获取指定合约的可用风险金（新的计算规则）
+        /// 计算规则：当前可用风险金 = 账户单笔可用风险金 + 该合约累加实际盈亏
+        /// </summary>
+        public async Task<decimal> GetContractAvailableRiskAmountAsync(long accountId, string contract)
+        {
+            await EnsureConnectionStringLoadedAsync();
+            using var connection = new MySqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            // 第一步：获取账户基本信息，计算单笔可用风险金
+            decimal singleRiskAmount = 0m;
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT equity, opportunity_count 
+                    FROM trading_accounts 
+                    WHERE id = @accountId";
+
+                command.Parameters.AddWithValue("@accountId", accountId);
+
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync())
+                    {
+                        var equity = reader.GetDecimal("equity");
+                        var opportunityCount = reader.GetInt32("opportunity_count");
+                        singleRiskAmount = opportunityCount > 0 ? equity / opportunityCount : 0;
+                    }
+                }
+            }
+
+            // 第二步：获取该合约所有推仓关联订单的累加实际盈亏
+            decimal totalRealProfit = 0m;
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = @"
+                    SELECT SUM(COALESCE(o.real_profit, 0)) as total_real_profit
+                    FROM simulation_orders o
+                    INNER JOIN position_push_order_rel r ON o.id = r.order_id
+                    INNER JOIN position_push_info p ON r.push_id = p.id
+                    WHERE p.account_id = @accountId 
+                    AND p.contract = @contract";
+
+                command.Parameters.AddWithValue("@accountId", accountId);
+                command.Parameters.AddWithValue("@contract", contract);
+
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync() && !reader.IsDBNull(0))
+                    {
+                        totalRealProfit = reader.GetDecimal("total_real_profit");
+                    }
+                }
+            }
+
+            // 第三步：计算当前可用风险金 = 单笔可用风险金 + 累加实际盈亏
+            return singleRiskAmount + totalRealProfit;
+        }
+
         // 添加GetUserAsync方法实现
         public async Task<User> GetUserAsync(string username, CancellationToken cancellationToken = default)
         {
@@ -2198,7 +2300,7 @@ namespace TCClient.Services
                     await connection.OpenAsync(cancellationToken);
                     using (var command = connection.CreateCommand())
                     {
-                        command.CommandText = "SELECT id, username, password_hash, created_at FROM users WHERE username = @username";
+                        command.CommandText = "SELECT id, username, password_hash, create_time FROM users WHERE username = @username";
                         command.Parameters.AddWithValue("@username", username);
 
                         using (var reader = await command.ExecuteReaderAsync(cancellationToken))
@@ -2210,7 +2312,7 @@ namespace TCClient.Services
                                     Id = reader.GetInt64("id"),
                                     Username = reader.GetString("username"),
                                     PasswordHash = reader.GetString("password_hash"),
-                                    CreatedAt = reader.GetDateTime("created_at")
+                                    CreateTime = reader.GetDateTime("create_time")
                                 };
                             }
                         }

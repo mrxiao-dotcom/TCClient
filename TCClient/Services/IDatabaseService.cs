@@ -69,6 +69,7 @@ namespace TCClient.Services
         Task InsertPushOrderRelAsync(long pushId, long orderId);
         Task<PushSummaryInfo> GetPushSummaryInfoAsync(long accountId, string contract);
         Task<decimal> GetAccountAvailableRiskAmountAsync(long accountId);
+        Task<decimal> GetContractAvailableRiskAmountAsync(long accountId, string contract);
 
         // 用户-账户关联相关
         Task AddUserTradingAccountAsync(long userId, long accountId, bool isDefault, CancellationToken cancellationToken = default);

@@ -17,5 +17,12 @@ namespace TCClient.Models
         public decimal RiskAmount { get; set; }        // 占用风险金
         public decimal AvailableRiskAmount { get; set; } // 可用风险金
         public List<SimulationOrder> Orders { get; set; } = new List<SimulationOrder>(); // 相关订单列表
+        
+        // 新增：可用风险金计算详情
+        public decimal SingleRiskAmount { get; set; }   // 单笔可用风险金（权益/次数）
+        public decimal AccumulatedRealProfit { get; set; } // 该合约累加实际盈亏
+        
+        // 计算属性：显示计算公式
+        public string AvailableRiskAmountFormula => $"{SingleRiskAmount:N2} + {AccumulatedRealProfit:N2} = {AvailableRiskAmount:N2}";
     }
 } 
