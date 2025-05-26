@@ -19,7 +19,7 @@ namespace TCClient.Services
 
         public static DatabaseConnection Default => new DatabaseConnection
         {
-            Name = "默认服务器",
+            Name = "远程MySQL服务器",
             Server = "154.23.181.75",
             Port = 3306,
             Database = "ordermanager",

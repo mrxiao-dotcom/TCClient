@@ -65,6 +65,12 @@ namespace TCClient.Views
                 // 初始化K线图控件
                 //LogToFile("开始初始化K线图控件");
                 KLineChartControl.Initialize(_exchangeService);
+                
+                // 将K线图控件传递给ViewModel，以便更新自选合约价格
+                _viewModel.KLineChartControl = KLineChartControl;
+                
+                // 订阅合约选择事件
+                KLineChartControl.ContractSelected += OnContractSelected;
                 //LogToFile("K线图控件初始化完成");
 
                 // 添加回车键触发查询
@@ -112,12 +118,6 @@ namespace TCClient.Views
                     // 在UI线程更新账户信息
                     Dispatcher.Invoke(() =>
                     {
-                        // 更新账户信息显示
-                        TotalEquityTextBlock.Text = account.Equity.ToString("N2");
-                        AvailableBalanceTextBlock.Text = account.Equity.ToString("N2"); // 暂时用总权益代替
-                        PositionMarginTextBlock.Text = "0.00"; // 暂无持仓保证金字段，设为0
-                        UnrealizedPnLTextBlock.Text = "0.00"; // 暂时设为0
-
                         // 计算单笔风险金额（总权益除以机会次数）
                         if (account.OpportunityCount > 0)
                         {
@@ -223,8 +223,9 @@ namespace TCClient.Views
                                     UpdateStopLossValues(newAmount: currentAmount);
                                 }
                                 
-                                // 更新合约文本框显示完整的交易对名称
-                                ContractTextBox.Text = ticker.Symbol;
+                                // 保持合约文本框显示不带USDT后缀的合约名称，以便与数据库中的推仓信息匹配
+                                // ContractTextBox.Text = ticker.Symbol; // 不要更新为完整的交易对名称
+                                // 保持原有的合约名称（不带USDT后缀），确保与数据库中的推仓信息格式一致
                                 
                                 // 记录日志
                                 Utils.LogManager.Log("OrderWindow", $"查询合约成功：{ticker.Symbol}，当前价格：{_currentPrice.ToString(priceFormat)}");
@@ -351,10 +352,22 @@ namespace TCClient.Views
                         return;
                     }
 
-                    if (!decimal.TryParse(QuantityTextBox.Text, out decimal quantity) || quantity <= 0)
+                    // 首先尝试从ViewModel获取数量，如果为0则尝试从输入框获取
+                    decimal quantity = viewModel.OrderQuantity;
+                    if (quantity <= 0)
                     {
-                        MessageBox.Show("请输入有效的数量", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
+                        // 如果ViewModel中的数量为0，尝试从输入框解析
+                        if (decimal.TryParse(QuantityTextBox.Text, out decimal textBoxQuantity) && textBoxQuantity > 0)
+                        {
+                            quantity = textBoxQuantity;
+                            viewModel.OrderQuantity = quantity; // 同步到ViewModel
+                        }
+                        else
+                        {
+                            MessageBox.Show("请输入有效的数量。\n\n提示：您可以手动输入数量，或者点击下方的'以损定量'按钮自动计算合适的数量。", "数量不能为空", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            QuantityTextBox.Focus();
+                            return;
+                        }
                     }
 
                     // 条件单特有验证
@@ -448,6 +461,18 @@ namespace TCClient.Views
             Close();
         }
 
+        private async void CloseAllPositionsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                await _viewModel.CloseAllPositionsAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"一键平仓失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private void LeverageButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button button && button.Tag is string leverageStr)
@@ -455,9 +480,12 @@ namespace TCClient.Views
                 try
                 {
                     // 更新按钮样式
-                    foreach (Button btn in ((StackPanel)button.Parent).Children)
+                    if (button.Parent is StackPanel panel)
                     {
-                        btn.Background = btn == button ? new SolidColorBrush(Colors.LightBlue) : null;
+                        foreach (Button btn in panel.Children.OfType<Button>())
+                        {
+                            btn.Background = btn == button ? new SolidColorBrush(Colors.LightBlue) : null;
+                        }
                     }
 
                     // 更新输入框
@@ -474,8 +502,7 @@ namespace TCClient.Views
                 }
                 catch (Exception ex)
                 {
-                    //LogToFile($"设置杠杆失败: {ex.Message}");
-                    //LogToFile($"异常堆栈: {ex.StackTrace}");
+                    Utils.LogManager.Log("OrderWindow", $"设置杠杆失败: {ex.Message}");
                     MessageBox.Show($"设置杠杆失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
@@ -487,12 +514,8 @@ namespace TCClient.Views
             {
                 try
                 {
-                    // 清除所有按钮的选中状态
-                    var buttonsPanel = ((Grid)textBox.Parent).Children.OfType<StackPanel>().First();
-                    foreach (Button btn in buttonsPanel.Children)
-                    {
-                        btn.Background = null;
-                    }
+                    // 清除所有杠杆按钮的选中状态
+                    ClearLeverageButtonSelection();
 
                     // 更新ViewModel
                     if (decimal.TryParse(textBox.Text, out decimal leverage))
@@ -509,12 +532,54 @@ namespace TCClient.Views
                         }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    //LogToFile($"更新杠杆值失败: {ex.Message}");
-                    //LogToFile($"异常堆栈: {ex.StackTrace}");
+                    Utils.LogManager.Log("OrderWindow", $"更新杠杆值失败: {ex.Message}");
                 }
             }
+        }
+
+        private void ClearLeverageButtonSelection()
+        {
+            try
+            {
+                // 查找杠杆快捷按钮面板
+                var leveragePanel = FindLeverageButtonPanel(this);
+                if (leveragePanel != null)
+                {
+                    foreach (Button btn in leveragePanel.Children.OfType<Button>())
+                    {
+                        btn.Background = null;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.Log("OrderWindow", $"清除杠杆按钮选中状态失败: {ex.Message}");
+            }
+        }
+
+        private StackPanel FindLeverageButtonPanel(DependencyObject parent)
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                
+                if (child is StackPanel panel)
+                {
+                    // 检查是否包含杠杆按钮（通过检查第一个按钮的Tag）
+                    var firstButton = panel.Children.OfType<Button>().FirstOrDefault();
+                    if (firstButton?.Tag?.ToString() == "1")
+                    {
+                        return panel;
+                    }
+                }
+                
+                var result = FindLeverageButtonPanel(child);
+                if (result != null)
+                    return result;
+            }
+            return null;
         }
 
         private void UpdateStopLossValues(decimal? newPercentage = null, decimal? newPrice = null, decimal? newAmount = null)
@@ -725,8 +790,9 @@ namespace TCClient.Views
                     return;
                 }
 
-                // 计算开仓数量：止损金额/(价格*止损比例*杠杆)
-                decimal quantity = stopLossAmount / (_currentPrice * stopLossPercentage * _viewModel.Leverage);
+                // 计算开仓数量：止损金额/(价格*止损比例)
+                // 注意：杠杆不影响下单数量，只影响保证金使用量
+                decimal quantity = stopLossAmount / (_currentPrice * stopLossPercentage);
 
                 // 获取当前价格的精度
                 string priceFormat = GetPriceFormat(_currentPrice);
@@ -734,7 +800,7 @@ namespace TCClient.Views
                 // 记录详细计算过程
                 Utils.LogManager.Log("OrderWindow", $"以损定量计算 - 止损金额: {stopLossAmount:F2}, 当前价格: {_currentPrice.ToString(priceFormat)}, " +
                                    $"止损价格: {stopLossPrice.ToString(priceFormat)}, 止损比例: {stopLossPercentage:P2}, 杠杆: {_viewModel.Leverage}, " +
-                                   $"计算公式: 止损金额 / (价格 * 止损比例 * 杠杆) = {stopLossAmount} / ({_currentPrice} * {stopLossPercentage} * {_viewModel.Leverage}) = {quantity}");
+                                   $"计算公式: 止损金额 / (价格 * 止损比例) = {stopLossAmount} / ({_currentPrice} * {stopLossPercentage}) = {quantity}");
 
                 // 根据数量大小决定是向下取整还是保留更多小数位
                 string quantityStr;
@@ -754,10 +820,19 @@ namespace TCClient.Views
                     quantityStr = quantity.ToString("F8");
                 }
 
-                // 更新数量输入框
+                // 更新数量输入框和ViewModel
                 QuantityTextBox.Text = quantityStr;
-
-                Utils.LogManager.Log("OrderWindow", $"以损定量计算完成，设置交易数量为：{quantityStr}");
+                
+                // 同步更新ViewModel中的OrderQuantity属性
+                if (decimal.TryParse(quantityStr, out decimal parsedQuantity))
+                {
+                    _viewModel.OrderQuantity = parsedQuantity;
+                    Utils.LogManager.Log("OrderWindow", $"以损定量计算完成，设置交易数量为：{quantityStr}，ViewModel.OrderQuantity已同步更新为：{parsedQuantity}");
+                }
+                else
+                {
+                    Utils.LogManager.Log("OrderWindow", $"以损定量计算完成，但无法解析数量字符串：{quantityStr}");
+                }
             }
             catch (Exception ex)
             {
@@ -766,11 +841,40 @@ namespace TCClient.Views
             }
         }
 
+        /// <summary>
+        /// 处理K线图控件的合约选择事件
+        /// </summary>
+        private async void OnContractSelected(object sender, string contractSymbol)
+        {
+            try
+            {
+                // 在UI线程上更新合约输入框
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    ContractTextBox.Text = contractSymbol;
+                    Utils.LogManager.Log("OrderWindow", $"从自选列表选择合约: {contractSymbol}");
+                });
+                
+                // 自动查询合约信息
+                await QueryContractAsync();
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.LogException("OrderWindow", ex, "处理合约选择事件失败");
+            }
+        }
+
         protected override void OnClosed(EventArgs e)
         {
             try
         {
             //LogToFile("=== 下单窗口关闭 ===");
+                
+                // 取消订阅K线图控件事件
+                if (KLineChartControl != null)
+                {
+                    KLineChartControl.ContractSelected -= OnContractSelected;
+                }
                 
                 // 首先处理K线图控件，停止其可能进行的任何操作
                 try 

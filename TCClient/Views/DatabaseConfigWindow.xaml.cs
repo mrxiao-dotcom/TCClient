@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using TCClient.ViewModels;
+using TCClient.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TCClient.Views
 {
@@ -12,7 +14,13 @@ namespace TCClient.Views
         public DatabaseConfigWindow()
         {
             InitializeComponent();
-            _viewModel = new DatabaseConfigViewModel();
+            
+            // 从应用程序的服务容器获取服务
+            var app = (App)Application.Current;
+            var databaseService = app.Services.GetRequiredService<IDatabaseService>();
+            var configService = app.Services.GetRequiredService<LocalConfigService>();
+            
+            _viewModel = new DatabaseConfigViewModel(databaseService, configService);
             DataContext = _viewModel;
 
             // 监听当前连接的变化

@@ -11,19 +11,23 @@ using System.IO;
 using TCClient.Utils;
 using System.Threading;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace TCClient.Services
 {
     public class MySqlDatabaseService : IDatabaseService, IUserService
     {
         private readonly LocalConfigService _configService;
+        private readonly ILogger<MySqlDatabaseService> _logger;
         private string _connectionString;
 
-        public MySqlDatabaseService()
+        public MySqlDatabaseService(ILogger<MySqlDatabaseService> logger)
         {
             LogManager.Log("Database", "MySqlDatabaseService 构造函数开始执行...");
             _configService = new LocalConfigService();
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             LogManager.Log("Database", "MySqlDatabaseService 构造函数执行完成");
+            _logger.LogInformation("MySqlDatabaseService 已初始化，ILogger 注入成功");
         }
 
         private async Task LoadConnectionStringAsync()
@@ -152,7 +156,7 @@ namespace TCClient.Services
                     }
 
         public async Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default)
-                        {
+        {
             var operation = "异步测试数据库连接";
             LogDatabaseOperationStart(operation);
             
@@ -166,25 +170,91 @@ namespace TCClient.Services
                     throw new InvalidOperationException("数据库连接字符串未设置");
                 }
 
-                using (var connection = new MySqlConnection(_connectionString))
+                // 在连接字符串中添加连接超时设置
+                var connectionStringWithTimeout = _connectionString;
+                if (!_connectionString.Contains("Connection Timeout"))
                 {
-                    await connection.OpenAsync(cancellationToken);
+                    connectionStringWithTimeout += ";Connection Timeout=10;";
+                }
+                
+                LogManager.Log("Database", $"尝试连接数据库，连接字符串: {connectionStringWithTimeout.Replace("Pwd=", "Pwd=***")}");
+
+                using (var connection = new MySqlConnection(connectionStringWithTimeout))
+                {
+                    LogManager.Log("Database", "开始打开数据库连接...");
+                    
+                    // 使用CancellationTokenSource设置额外的超时控制
+                    using (var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+                    using (var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token))
+                    {
+                        await connection.OpenAsync(combinedCts.Token);
+                    }
+                    
+                    LogManager.Log("Database", $"数据库连接成功！服务器版本: {connection.ServerVersion}");
+                    LogManager.Log("Database", $"连接状态: {connection.State}");
+                    
+                    // 测试一个简单的查询
+                    using (var cmd = new MySqlCommand("SELECT 1", connection))
+                    {
+                        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+                        LogManager.Log("Database", $"测试查询结果: {result}");
+                    }
+                    
                     LogDatabaseOperationEnd(operation, true);
-                                return true;
-                            }
+                    return true;
+                }
             }
             catch (OperationCanceledException)
             {
                 LogManager.Log("Database", "数据库连接测试被取消");
                 LogDatabaseOperationEnd(operation, false);
-                                throw;
-                }
-                catch (Exception ex)
+                throw;
+            }
+            catch (MySqlException mysqlEx)
+            {
+                LogManager.Log("Database", $"MySQL连接错误 - 错误码: {mysqlEx.Number}");
+                LogManager.Log("Database", $"MySQL错误信息: {mysqlEx.Message}");
+                
+                switch (mysqlEx.Number)
                 {
+                    case 0: // 通用连接错误
+                        LogManager.Log("Database", "无法连接到MySQL服务器，请检查：");
+                        LogManager.Log("Database", "1. MySQL服务是否正在运行");
+                        LogManager.Log("Database", "2. 服务器地址和端口是否正确");
+                        LogManager.Log("Database", "3. 防火墙是否阻止连接");
+                        break;
+                    case 1042: // 无法连接到MySQL服务器
+                        LogManager.Log("Database", "无法连接到MySQL服务器，可能原因：");
+                        LogManager.Log("Database", "1. 服务器未启动或不可达");
+                        LogManager.Log("Database", "2. 网络连接问题");
+                        LogManager.Log("Database", "3. 端口被防火墙阻止");
+                        break;
+                    case 1045: // 访问被拒绝
+                        LogManager.Log("Database", "数据库访问被拒绝，请检查用户名和密码");
+                        break;
+                    case 1049: // 未知数据库
+                        LogManager.Log("Database", "指定的数据库不存在，请检查数据库名称");
+                        break;
+                    case 1130: // 主机不允许连接
+                        LogManager.Log("Database", "主机不允许连接，请检查MySQL用户权限");
+                        break;
+                    default:
+                        LogManager.Log("Database", $"未知的MySQL错误: {mysqlEx.Number} - {mysqlEx.Message}");
+                        break;
+                }
+                
+                LogDatabaseOperationError(operation, mysqlEx);
+                LogDatabaseOperationEnd(operation, false);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Log("Database", $"数据库连接发生未知错误: {ex.GetType().Name}");
+                LogManager.Log("Database", $"错误信息: {ex.Message}");
                 LogDatabaseOperationError(operation, ex);
                 LogDatabaseOperationEnd(operation, false);
-                    return false;
-                }
+                return false;
+            }
         }
 
         public async Task<bool> ValidateUserAsync(string username, string password, CancellationToken cancellationToken = default)
@@ -1453,6 +1523,94 @@ namespace TCClient.Services
             return result;
         }
 
+        public async Task<List<DailyRanking>> GetDailyRankingDataAsync(DateTime startDate, DateTime endDate)
+        {
+            var result = new List<DailyRanking>();
+            var connectionString = _configService.GetCurrentConnectionString();
+
+            try
+            {
+                LogManager.Log("Database", $"开始查询每日排行榜数据，日期范围：{startDate.Date:yyyy-MM-dd} 至 {endDate.Date:yyyy-MM-dd}");
+                
+                using var connection = new MySqlConnection(connectionString);
+                await connection.OpenAsync();
+                
+                LogManager.Log("Database", "数据库连接已建立");
+
+                // 首先检查表是否存在
+                var checkTableSql = @"
+                    SELECT COUNT(*) 
+                    FROM information_schema.tables 
+                    WHERE table_schema = DATABASE() 
+                    AND table_name = 'daily_ranking'";
+                    
+                using var checkCommand = new MySqlCommand(checkTableSql, connection);
+                var tableExists = Convert.ToInt32(await checkCommand.ExecuteScalarAsync()) > 0;
+                
+                LogManager.Log("Database", $"daily_ranking 表存在: {tableExists}");
+                
+                if (!tableExists)
+                {
+                    LogManager.Log("Database", "daily_ranking 表不存在，返回空结果");
+                    return result;
+                }
+
+                // 检查表中的总记录数
+                var countSql = "SELECT COUNT(*) FROM daily_ranking";
+                using var countCommand = new MySqlCommand(countSql, connection);
+                var totalRecords = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
+                LogManager.Log("Database", $"daily_ranking 表中总共有 {totalRecords} 条记录");
+
+                var sql = @"
+                    SELECT 
+                        id,
+                        date,
+                        top_gainers,
+                        top_losers,
+                        created_at,
+                        updated_at
+                    FROM daily_ranking
+                    WHERE date BETWEEN @StartDate AND @EndDate
+                    ORDER BY date DESC";
+
+                using var command = new MySqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@StartDate", startDate.Date);
+                command.Parameters.AddWithValue("@EndDate", endDate.Date);
+                
+                LogManager.Log("Database", $"执行SQL查询: {sql}");
+                LogManager.Log("Database", $"参数: StartDate={startDate.Date:yyyy-MM-dd}, EndDate={endDate.Date:yyyy-MM-dd}");
+
+                using var reader = await command.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var dailyRanking = new DailyRanking
+                    {
+                        Id = reader.GetInt32("id"),
+                        Date = reader.GetDateTime("date"),
+                        TopGainers = reader.GetString("top_gainers"),
+                        TopLosers = reader.GetString("top_losers"),
+                        CreatedAt = reader.GetDateTime("created_at"),
+                        UpdatedAt = reader.GetDateTime("updated_at")
+                    };
+                    
+                    LogManager.Log("Database", $"读取记录: ID={dailyRanking.Id}, Date={dailyRanking.Date:yyyy-MM-dd}");
+                    LogManager.Log("Database", $"TopGainers长度: {dailyRanking.TopGainers?.Length ?? 0}");
+                    LogManager.Log("Database", $"TopLosers长度: {dailyRanking.TopLosers?.Length ?? 0}");
+                    
+                    result.Add(dailyRanking);
+                }
+
+                LogManager.Log("Database", $"成功获取每日排行榜数据，共 {result.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取每日排行榜数据失败");
+                throw;
+            }
+
+            return result;
+        }
+
         public async Task<PositionPushInfo> GetOpenPushInfoAsync(long accountId, string contract)
         {
             await EnsureConnectionStringLoadedAsync();
@@ -1504,13 +1662,13 @@ namespace TCClient.Services
                 decimal realPnL = 0m;
                 if (order.Direction.ToLower() == "buy")
                 {
-                    // 做多：止损金额 = (开仓价 - 止损价) * 数量 * 合约面值
-                    realPnL = (order.EntryPrice - order.InitialStopLoss) * (decimal)order.Quantity * order.ContractSize;
+                    // 做多：实际盈亏 = (止损价 - 开仓价) * 数量 * 合约面值（止损时的亏损金额，通常为负值）
+                    realPnL = (order.InitialStopLoss - order.EntryPrice) * (decimal)order.Quantity * order.ContractSize;
                 }
                 else if (order.Direction.ToLower() == "sell")
                 {
-                    // 做空：止损金额 = (止损价 - 开仓价) * 数量 * 合约面值
-                    realPnL = (order.InitialStopLoss - order.EntryPrice) * (decimal)order.Quantity * order.ContractSize;
+                    // 做空：实际盈亏 = (开仓价 - 止损价) * 数量 * 合约面值（止损时的亏损金额，通常为负值）
+                    realPnL = (order.EntryPrice - order.InitialStopLoss) * (decimal)order.Quantity * order.ContractSize;
                 }
                 
                 // 2. 插入订单
@@ -1993,7 +2151,38 @@ namespace TCClient.Services
             try
             {
                 LogManager.Log("Database", $"开始获取推仓信息 - 账户ID: {accountId}, 合约: {contract}");
-            await EnsureConnectionStringLoadedAsync();
+                _logger?.LogInformation("=== 数据库服务：开始获取推仓信息 ===");
+                _logger?.LogInformation("账户ID: {accountId}", accountId);
+                _logger?.LogInformation("查询合约: '{contract}' (长度: {length})", contract, contract?.Length ?? 0);
+                
+                // 添加调试：先查询数据库中所有的推仓记录
+                await EnsureConnectionStringLoadedAsync();
+                using (var debugConnection = new MySqlConnection(_connectionString))
+                {
+                    await debugConnection.OpenAsync();
+                    using (var debugCommand = debugConnection.CreateCommand())
+                    {
+                        debugCommand.CommandText = "SELECT DISTINCT contract FROM position_push_info WHERE account_id = @accountId ORDER BY contract";
+                        debugCommand.Parameters.AddWithValue("@accountId", accountId);
+                        
+                        LogManager.Log("Database", $"调试：查询账户 {accountId} 的所有推仓合约");
+                        _logger?.LogInformation("查询账户 {accountId} 的所有推仓合约", accountId);
+                        
+                        using (var debugReader = await debugCommand.ExecuteReaderAsync())
+                        {
+                            var contracts = new List<string>();
+                            while (await debugReader.ReadAsync())
+                            {
+                                contracts.Add(debugReader.GetString("contract"));
+                            }
+                            LogManager.Log("Database", $"调试：找到的推仓合约: [{string.Join(", ", contracts)}]");
+                            LogManager.Log("Database", $"调试：查询的合约名称: '{contract}' (长度: {contract?.Length ?? 0})");
+                            
+                            _logger?.LogInformation("数据库中找到的推仓合约: [{contracts}]", string.Join(", ", contracts));
+                            _logger?.LogInformation("当前查询的合约名称: '{contract}' (长度: {length})", contract, contract?.Length ?? 0);
+                        }
+                    }
+                }
                 
                 PushSummaryInfo summary = null;
                 
@@ -2022,38 +2211,79 @@ namespace TCClient.Services
                 command.Parameters.AddWithValue("@contract", contract);
 
                         LogManager.Log("Database", $"执行推仓信息查询: {command.CommandText}");
+                        LogManager.Log("Database", $"查询参数: accountId={accountId}, contract='{contract}'");
+                        
+                        _logger?.LogInformation("执行推仓信息查询");
+                        _logger?.LogInformation("SQL: {sql}", command.CommandText);
+                        _logger?.LogInformation("查询参数: accountId={accountId}, contract='{contract}'", accountId, contract);
 
                         using (var reader = await command.ExecuteReaderAsync())
                         {
                             if (!await reader.ReadAsync())
                             {
                                 LogManager.Log("Database", $"未找到推仓信息 - 账户ID: {accountId}, 合约: {contract}");
-                                return new PushSummaryInfo
+                                _logger?.LogInformation("未找到推仓信息 - 账户ID: {accountId}, 合约: {contract}", accountId, contract);
+                                
+                                // 尝试模糊查询，看看是否有类似的合约名称
+                                using (var fuzzyConnection = new MySqlConnection(_connectionString))
                                 {
-                                    PushId = 0,
-                                    Contract = contract,
-                                    CreateTime = DateTime.Now,
-                                    Status = "open",
-                                    TotalFloatingPnL = 0m,
-                                    TotalRealPnL = 0m,
-                                    TotalOrderCount = 0,
-                                    OpenOrderCount = 0,
-                                    ClosedOrderCount = 0,
-                                    RiskAmount = 0m,
-                                    AvailableRiskAmount = 0m,
-                                    Orders = new List<SimulationOrder>()
-                                };
+                                    await fuzzyConnection.OpenAsync();
+                                    using (var fuzzyCommand = fuzzyConnection.CreateCommand())
+                                    {
+                                        fuzzyCommand.CommandText = @"
+                                            SELECT contract 
+                                            FROM position_push_info 
+                                            WHERE account_id = @accountId 
+                                            AND (contract LIKE @contractPattern1 OR contract LIKE @contractPattern2)
+                                            ORDER BY contract";
+                                        
+                                        fuzzyCommand.Parameters.AddWithValue("@accountId", accountId);
+                                        fuzzyCommand.Parameters.AddWithValue("@contractPattern1", $"%{contract}%");
+                                        fuzzyCommand.Parameters.AddWithValue("@contractPattern2", $"{contract}%");
+                                        
+                                        using (var fuzzyReader = await fuzzyCommand.ExecuteReaderAsync())
+                                        {
+                                            var similarContracts = new List<string>();
+                                            while (await fuzzyReader.ReadAsync())
+                                            {
+                                                similarContracts.Add(fuzzyReader.GetString("contract"));
+                                            }
+                                            if (similarContracts.Any())
+                                            {
+                                                LogManager.Log("Database", $"找到相似的合约名称: [{string.Join(", ", similarContracts)}]");
+                                                _logger?.LogInformation("找到相似的合约名称: [{contracts}]", string.Join(", ", similarContracts));
+                                            }
+                                            else
+                                            {
+                                                LogManager.Log("Database", "未找到任何相似的合约名称");
+                                                _logger?.LogInformation("未找到任何相似的合约名称");
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // 没有找到开放的推仓记录，返回null
+                                return null;
                             }
 
                             LogManager.Log("Database", "成功读取推仓基本信息");
+                            _logger?.LogInformation("成功读取推仓基本信息");
+                            
+                            var pushId = reader.GetInt64("id");
+                            var totalOrders = reader.GetInt32("total_orders");
+                            var openOrders = reader.GetInt32("open_orders");
+                            
+                            _logger?.LogInformation("推仓ID: {pushId}, 总订单数: {totalOrders}, 开仓订单数: {openOrders}", 
+                                pushId, totalOrders, openOrders);
+                            
                             summary = new PushSummaryInfo
                             {
-                                PushId = reader.GetInt64("id"),
+                                PushId = pushId,
                                 Contract = reader.GetString("contract"),
                                 CreateTime = reader.GetDateTime("create_time"),
                                 Status = reader.GetString("status"),
-                                TotalOrderCount = reader.GetInt32("total_orders"),
-                                OpenOrderCount = reader.GetInt32("open_orders"),
+                                TotalOrderCount = totalOrders,
+                                OpenOrderCount = openOrders,
                                 ClosedOrderCount = reader.GetInt32("closed_orders"),
                                 TotalFloatingPnL = reader.IsDBNull(reader.GetOrdinal("total_floating_pnl")) ? 0m : reader.GetDecimal("total_floating_pnl"),
                                 TotalRealPnL = reader.IsDBNull(reader.GetOrdinal("total_real_pnl")) ? 0m : reader.GetDecimal("total_real_pnl"),
@@ -2083,6 +2313,7 @@ namespace TCClient.Services
 
                 command.Parameters.AddWithValue("@pushId", summary.PushId);
                         LogManager.Log("Database", $"执行订单查询: pushId={summary.PushId}");
+                        _logger?.LogInformation("执行订单查询: pushId={pushId}", summary.PushId);
 
                         using (var reader = await command.ExecuteReaderAsync())
                         {
@@ -2195,11 +2426,15 @@ namespace TCClient.Services
                 LogManager.Log("Database", $"计算占用风险金: {summary.RiskAmount}");
 
                 LogManager.Log("Database", "成功获取推仓信息");
+                _logger?.LogInformation("=== 数据库服务：推仓信息获取完成 ===");
+                _logger?.LogInformation("最终结果 - 推仓ID: {pushId}, 订单数: {orderCount}", 
+                    summary.PushId, summary.Orders?.Count ?? 0);
             return summary;
             }
             catch (Exception ex)
             {
                 LogManager.LogException("Database", ex, "获取推仓信息失败");
+                _logger?.LogError(ex, "获取推仓信息失败 - 账户ID: {accountId}, 合约: {contract}", accountId, contract);
                 throw;
             }
         }
@@ -2630,6 +2865,57 @@ namespace TCClient.Services
             catch (Exception ex)
             {
                 LogManager.LogException("Database", ex, "取消条件单失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 更新推仓信息状态
+        /// </summary>
+        public async Task<bool> UpdatePushInfoStatusAsync(long pushId, string status, DateTime? closeTime = null)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    using (var command = connection.CreateCommand())
+                    {
+                        if (closeTime.HasValue)
+                        {
+                            command.CommandText = @"
+                                UPDATE position_push_info 
+                                SET status = @status, close_time = @close_time, update_time = @update_time 
+                                WHERE id = @id";
+                            command.Parameters.AddWithValue("@close_time", closeTime.Value);
+                        }
+                        else
+                        {
+                            command.CommandText = @"
+                                UPDATE position_push_info 
+                                SET status = @status, update_time = @update_time 
+                                WHERE id = @id";
+                        }
+
+                        command.Parameters.AddWithValue("@id", pushId);
+                        command.Parameters.AddWithValue("@status", status);
+                        command.Parameters.AddWithValue("@update_time", DateTime.Now);
+
+                        var result = await command.ExecuteNonQueryAsync();
+                        
+                        _logger?.LogInformation("更新推仓状态成功 - 推仓ID: {pushId}, 状态: {status}, 完结时间: {closeTime}", 
+                            pushId, status, closeTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "无");
+                        LogManager.Log("Database", $"更新推仓状态成功 - 推仓ID: {pushId}, 状态: {status}");
+                        
+                        return result > 0;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "更新推仓状态失败 - 推仓ID: {pushId}", pushId);
+                LogManager.LogException("Database", ex, $"更新推仓状态失败 - 推仓ID: {pushId}");
                 throw;
             }
         }

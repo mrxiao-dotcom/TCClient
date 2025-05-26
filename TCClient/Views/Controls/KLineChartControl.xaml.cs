@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,9 +10,12 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Text.Json;
 using System.Net.Http;
+using System.Windows.Input;
 using TCClient.Models;
 using TCClient.Services;
+using TCClient.Utils;
 using IOPath = System.IO.Path;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TCClient.Views.Controls
 {
@@ -32,6 +36,13 @@ namespace TCClient.Views.Controls
         private double _priceRange;
         private double _scaleY;
         private IExchangeService _exchangeService;
+        private FavoriteContractsService _favoriteContractsService;
+        
+        // 自定义合约列表相关
+        public ObservableCollection<ContractInfo> CustomContracts { get; set; }
+        
+        // 合约选择事件
+        public event EventHandler<string> ContractSelected;
 
         public KLineChartControl()
         {
@@ -39,6 +50,27 @@ namespace TCClient.Views.Controls
             _dataDirectory = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
             Directory.CreateDirectory(_dataDirectory);
             _orderMarkers = new List<OrderMarker>();
+
+            // 从依赖注入容器获取自选合约服务
+            try
+            {
+                var app = Application.Current as App;
+                if (app?.Services != null)
+                {
+                    _favoriteContractsService = app.Services.GetRequiredService<FavoriteContractsService>();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("KLineChart", ex, "获取自选合约服务失败");
+            }
+
+            // 初始化自定义合约列表
+            CustomContracts = new ObservableCollection<ContractInfo>();
+            _ = InitializeFavoriteContractsAsync();
+            
+            // 设置DataContext
+            this.DataContext = this;
 
             // 监听Canvas大小变化
             KLineCanvas.SizeChanged += KLineCanvas_SizeChanged;
@@ -88,22 +120,7 @@ namespace TCClient.Views.Controls
             }
         }
 
-        private void UpdateDisplayButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (int.TryParse(KLineCountTextBox.Text, out int count) && count > 0)
-            {
-                _kLineCount = count;
-                if (_kLineData != null && _kLineData.Any())
-                {
-                    DrawKLineChart();
-                }
-            }
-        }
-
-        private async void FetchKLineDataButton_Click(object sender, RoutedEventArgs e)
-        {
-            await FetchKLineData();
-        }
+        // 移除了UpdateDisplayButton_Click和FetchKLineDataButton_Click方法，因为对应的UI控件已被删除
 
         private void UpdateStatusMessage(string message)
         {
@@ -205,10 +222,7 @@ namespace TCClient.Views.Controls
             };
         }
 
-        private async void SaveKLineDataButton_Click(object sender, RoutedEventArgs e)
-        {
-            await SaveKLineData();
-        }
+        // 移除了SaveKLineDataButton_Click方法，因为对应的UI控件已被删除
 
         private async Task SaveKLineData()
         {
@@ -234,10 +248,7 @@ namespace TCClient.Views.Controls
             }
         }
 
-        private void LoadLocalDataButton_Click(object sender, RoutedEventArgs e)
-        {
-            LoadLocalData();
-        }
+        // 移除了LoadLocalDataButton_Click方法，因为对应的UI控件已被删除
 
         private void LoadLocalData()
         {
@@ -588,10 +599,214 @@ namespace TCClient.Views.Controls
 
         private void UpdateKLineDisplay(List<KLineData> data)
         {
-            // 更新K线图显示
-            // TODO: 实现K线图绘制逻辑
-            InvalidateVisual();
+            _kLineData = data;
+            if (_kLineData != null && _kLineData.Any())
+            {
+                DrawKLineChart();
+            }
         }
+
+        #region 自定义合约列表功能
+
+        /// <summary>
+        /// 异步初始化自选合约列表
+        /// </summary>
+        private async Task InitializeFavoriteContractsAsync()
+        {
+            try
+            {
+                if (_favoriteContractsService != null)
+                {
+                    // 从服务获取自选合约列表
+                    var favoriteContracts = await _favoriteContractsService.GetFavoriteContractsAsync();
+                    
+                    // 在UI线程上更新合约列表
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        CustomContracts.Clear();
+                        foreach (var contract in favoriteContracts)
+                        {
+                            CustomContracts.Add(new ContractInfo
+                            {
+                                Symbol = contract,
+                                PriceChangePercent = 0,
+                                LastPrice = 0,
+                                Volume = 0
+                            });
+                        }
+                    });
+                    
+                    LogManager.Log("KLineChart", $"已加载自选合约列表，共 {favoriteContracts.Count} 个合约");
+                }
+                else
+                {
+                    // 如果服务不可用，使用默认列表
+                    InitializeDefaultContracts();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("KLineChart", ex, "初始化自选合约列表失败，使用默认列表");
+                InitializeDefaultContracts();
+            }
+        }
+
+        /// <summary>
+        /// 初始化默认合约列表（备用方案）
+        /// </summary>
+        private void InitializeDefaultContracts()
+        {
+            var defaultContracts = new[]
+            {
+                "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOT", "DOGE", "AVAX", "MATIC"
+            };
+
+            foreach (var contract in defaultContracts)
+            {
+                CustomContracts.Add(new ContractInfo
+                {
+                    Symbol = contract,
+                    PriceChangePercent = 0,
+                    LastPrice = 0,
+                    Volume = 0
+                });
+            }
+        }
+
+        /// <summary>
+        /// 更新合约列表的价格信息
+        /// </summary>
+        /// <param name="tickers">价格数据</param>
+        public void UpdateContractPrices(IEnumerable<TickerInfo> tickers)
+        {
+            if (tickers == null) return;
+
+            try
+            {
+                foreach (var contract in CustomContracts)
+                {
+                    var fullSymbol = $"{contract.Symbol}USDT";
+                    var ticker = tickers.FirstOrDefault(t => 
+                        t.Symbol.Equals(fullSymbol, StringComparison.OrdinalIgnoreCase));
+                    
+                    if (ticker != null)
+                    {
+                        contract.LastPrice = ticker.LastPrice;
+                        contract.PriceChangePercent = ticker.PriceChangePercent;
+                        contract.Volume = ticker.Volume;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"更新合约价格失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 增加自选合约按钮点击事件
+        /// </summary>
+        private async void AddContractButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var inputDialog = new ContractInputDialog();
+                if (inputDialog.ShowDialog() == true)
+                {
+                    var symbol = inputDialog.ContractSymbol.ToUpper();
+                    
+                    // 检查是否已存在
+                    if (CustomContracts.Any(c => c.Symbol.Equals(symbol, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        MessageBox.Show("该合约已在自选列表中", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                        return;
+                    }
+
+                    // 添加到UI列表
+                    CustomContracts.Add(new ContractInfo
+                    {
+                        Symbol = symbol,
+                        PriceChangePercent = 0,
+                        LastPrice = 0,
+                        Volume = 0
+                    });
+
+                    // 保存到本地文件
+                    if (_favoriteContractsService != null)
+                    {
+                        await _favoriteContractsService.AddFavoriteContractAsync(symbol);
+                    }
+
+                    LogManager.Log("KLineChart", $"添加自选合约: {symbol}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("KLineChart", ex, "添加自选合约失败");
+                MessageBox.Show($"添加自选合约失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// 删除自选合约按钮点击事件
+        /// </summary>
+        private async void RemoveContractButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var selectedContract = ContractListDataGrid.SelectedItem as ContractInfo;
+                if (selectedContract == null)
+                {
+                    MessageBox.Show("请先选择要删除的合约", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                var result = MessageBox.Show($"确定要删除合约 {selectedContract.Symbol} 吗？", 
+                    "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                
+                if (result == MessageBoxResult.Yes)
+                {
+                    // 从UI列表中移除
+                    CustomContracts.Remove(selectedContract);
+                    
+                    // 从本地文件中移除
+                    if (_favoriteContractsService != null)
+                    {
+                        await _favoriteContractsService.RemoveFavoriteContractAsync(selectedContract.Symbol);
+                    }
+                    
+                    LogManager.Log("KLineChart", $"删除自选合约: {selectedContract.Symbol}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("KLineChart", ex, "删除自选合约失败");
+                MessageBox.Show($"删除自选合约失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// 合约列表双击事件
+        /// </summary>
+        private void ContractListDataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                var selectedContract = ContractListDataGrid.SelectedItem as ContractInfo;
+                if (selectedContract != null)
+                {
+                    // 触发合约选择事件
+                    ContractSelected?.Invoke(this, selectedContract.Symbol);
+                    LogManager.Log("KLineChart", $"选择合约: {selectedContract.Symbol}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("KLineChart", ex, "选择合约失败");
+            }
+        }
+
+        #endregion
     }
 
     public class OrderMarker

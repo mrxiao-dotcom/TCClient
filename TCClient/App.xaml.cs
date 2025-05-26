@@ -81,23 +81,27 @@ public partial class App : Application
             builder.SetMinimumLevel(LogLevel.Information);
         });
 
-        // 创建服务实例
-        var configService = new LocalConfigService();
-        var databaseService = new MySqlDatabaseService();
-        var messageService = new MessageBoxService();
-        var rankingService = new RankingService(configService.GetCurrentConnectionString());
-        var accountService = new AccountService(databaseService);
-        var loggerFactory = services.BuildServiceProvider().GetRequiredService<ILoggerFactory>();
-        var exchangeServiceFactory = new ExchangeServiceFactory(loggerFactory);
-
-        // 注册服务
-        services.AddSingleton<LocalConfigService>(configService);
-        services.AddSingleton<IDatabaseService>(databaseService);
-        services.AddSingleton<IUserService>(databaseService);
-        services.AddSingleton<IMessageService>(messageService);
-        services.AddSingleton<IRankingService>(rankingService);
-        services.AddSingleton<IAccountService>(accountService);
-        services.AddSingleton<IExchangeServiceFactory>(exchangeServiceFactory);
+        // 注册服务（使用工厂模式确保依赖注入正确）
+        services.AddSingleton<LocalConfigService>();
+        services.AddSingleton<MySqlDatabaseService>();
+        services.AddSingleton<IDatabaseService>(provider => provider.GetRequiredService<MySqlDatabaseService>());
+        services.AddSingleton<IUserService>(provider => provider.GetRequiredService<MySqlDatabaseService>());
+        services.AddSingleton<IMessageService, MessageBoxService>();
+        services.AddSingleton<IRankingService>(provider =>
+        {
+            var configService = provider.GetRequiredService<LocalConfigService>();
+            return new RankingService(configService.GetCurrentConnectionString());
+        });
+        services.AddSingleton<IAccountService>(provider =>
+        {
+            var userService = provider.GetRequiredService<IUserService>();
+            return new AccountService(userService);
+        });
+        services.AddSingleton<IExchangeServiceFactory>(provider =>
+        {
+            var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
+            return new ExchangeServiceFactory(loggerFactory);
+        });
 
         // 注册交易所服务
         services.AddSingleton<IExchangeService>(provider =>
@@ -114,6 +118,9 @@ public partial class App : Application
         
         // 注册条件单服务
         services.AddSingleton<ConditionalOrderService>();
+        
+        // 注册自选合约服务
+        services.AddSingleton<FavoriteContractsService>();
 
         // 注册 ViewModel
         services.AddSingleton<MainViewModel>();
@@ -180,6 +187,13 @@ public partial class App : Application
             
             // 添加应用程序退出事件
             Current.Exit += Application_Exit;
+
+            // 注册服务到ServiceLocator（为了向后兼容）
+            LogManager.Log("App", "注册服务到ServiceLocator");
+            ServiceLocator.RegisterService<IDatabaseService>(_serviceProvider.GetRequiredService<IDatabaseService>());
+            ServiceLocator.RegisterService<IMessageService>(_serviceProvider.GetRequiredService<IMessageService>());
+            ServiceLocator.RegisterService<IUserService>(_serviceProvider.GetRequiredService<IUserService>());
+            LogManager.Log("App", "ServiceLocator服务注册完成");
 
             // 创建主窗口实例但不显示
             LogManager.Log("App", "预先创建主窗口实例");

@@ -1,0 +1,124 @@
+<Window x:Class="TCClient.Views.DatabaseSetupWizard"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="数据库设置向导" Height="500" Width="600"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题 -->
+        <TextBlock Grid.Row="0" Text="数据库连接设置向导" 
+                   FontSize="18" FontWeight="Bold" 
+                   HorizontalAlignment="Center" Margin="0,0,0,20"/>
+
+        <!-- 主要内容 -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- 连接信息 -->
+                <GroupBox Header="数据库连接信息" Margin="0,0,0,15">
+                    <Grid Margin="10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Label Grid.Row="0" Grid.Column="0" Content="服务器地址:"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Name="ServerTextBox" 
+                                 Text="localhost" Margin="5"/>
+
+                        <Label Grid.Row="1" Grid.Column="0" Content="端口:"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Name="PortTextBox" 
+                                 Text="3306" Margin="5"/>
+
+                        <Label Grid.Row="2" Grid.Column="0" Content="数据库名:"/>
+                        <TextBox Grid.Row="2" Grid.Column="1" Name="DatabaseTextBox" 
+                                 Text="trading_system" Margin="5"/>
+
+                        <Label Grid.Row="3" Grid.Column="0" Content="用户名:"/>
+                        <TextBox Grid.Row="3" Grid.Column="1" Name="UsernameTextBox" 
+                                 Text="root" Margin="5"/>
+
+                        <Label Grid.Row="4" Grid.Column="0" Content="密码:"/>
+                        <PasswordBox Grid.Row="4" Grid.Column="1" Name="PasswordBox" 
+                                     Margin="5"/>
+
+                        <Button Grid.Row="5" Grid.Column="1" Name="TestConnectionButton"
+                                Content="测试连接" Width="100" HorizontalAlignment="Left"
+                                Margin="5" Click="TestConnectionButton_Click"/>
+                    </Grid>
+                </GroupBox>
+
+                <!-- 状态信息 -->
+                <GroupBox Header="连接状态" Margin="0,0,0,15">
+                    <TextBlock Name="StatusTextBlock" 
+                               Text="请配置数据库连接信息并点击'测试连接'"
+                               Margin="10" TextWrapping="Wrap"
+                               Foreground="Gray"/>
+                </GroupBox>
+
+                <!-- 帮助信息 -->
+                <GroupBox Header="设置说明">
+                    <StackPanel Margin="10">
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,10">
+                            <Run Text="如果您还没有安装MySQL，请按照以下步骤操作：" FontWeight="Bold"/>
+                        </TextBlock>
+                        
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,5">
+                            1. 下载并安装MySQL Server (推荐版本8.0或更高)
+                        </TextBlock>
+                        
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,5">
+                            2. 安装时设置root用户密码，或使用空密码
+                        </TextBlock>
+                        
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,5">
+                            3. 确保MySQL服务正在运行
+                        </TextBlock>
+                        
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,10">
+                            4. 创建名为'trading_system'的数据库
+                        </TextBlock>
+
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,5">
+                            <Run Text="常见问题解决：" FontWeight="Bold"/>
+                        </TextBlock>
+                        
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,5">
+                            • 如果连接失败，请检查MySQL服务是否启动
+                        </TextBlock>
+                        
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,5">
+                            • 确认用户名和密码正确
+                        </TextBlock>
+                        
+                        <TextBlock TextWrapping="Wrap">
+                            • 检查防火墙是否阻止了3306端口
+                        </TextBlock>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 按钮 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" 
+                    HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Name="SaveButton" Content="保存配置" Width="80" 
+                    Margin="0,0,10,0" Click="SaveButton_Click" IsEnabled="False"/>
+            <Button Name="CancelButton" Content="取消" Width="80" 
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window> 

@@ -372,9 +372,37 @@ namespace TCClient.ViewModels
         {
             try
             {
+                // 获取当前活动窗口作为Owner
+                Window ownerWindow = null;
+                foreach (Window win in Application.Current.Windows)
+                {
+                    if (win.IsActive)
+                    {
+                        ownerWindow = win;
+                        break;
+                    }
+                }
+                
+                // 如果没有活动窗口，使用第一个可见窗口
+                if (ownerWindow == null)
+                {
+                    foreach (Window win in Application.Current.Windows)
+                    {
+                        if (win.IsVisible)
+                        {
+                            ownerWindow = win;
+                            break;
+                        }
+                    }
+                }
+
                 var app = (App)Application.Current;
                 var window = app.Services.GetRequiredService<RegisterWindow>();
-                window.Owner = Application.Current.MainWindow;
+                if (ownerWindow != null)
+                {
+                    window.Owner = ownerWindow;
+                }
+                window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
                 window.ShowDialog();
             }
             catch (Exception ex)
@@ -389,9 +417,61 @@ namespace TCClient.ViewModels
 
         private void ShowDatabaseConfigWindow()
         {
-            var configWindow = new DatabaseConfigWindow();
-            configWindow.Owner = Application.Current.MainWindow;
-            configWindow.ShowDialog();
+            try
+            {
+                // 获取当前活动窗口作为Owner
+                Window ownerWindow = null;
+                foreach (Window win in Application.Current.Windows)
+                {
+                    if (win.IsActive)
+                    {
+                        ownerWindow = win;
+                        break;
+                    }
+                }
+                
+                // 如果没有活动窗口，使用第一个可见窗口
+                if (ownerWindow == null)
+                {
+                    foreach (Window win in Application.Current.Windows)
+                    {
+                        if (win.IsVisible)
+                        {
+                            ownerWindow = win;
+                            break;
+                        }
+                    }
+                }
+
+                // 首先尝试显示数据库设置向导
+                var setupWizard = new DatabaseSetupWizard();
+                if (ownerWindow != null)
+                {
+                    setupWizard.Owner = ownerWindow;
+                }
+                setupWizard.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                var result = setupWizard.ShowDialog();
+                
+                // 如果用户取消了向导，则显示高级配置窗口
+                if (result != true)
+                {
+                    var configWindow = new DatabaseConfigWindow();
+                    if (ownerWindow != null)
+                    {
+                        configWindow.Owner = ownerWindow;
+                    }
+                    configWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                    configWindow.ShowDialog();
+                }
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开数据库配置窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
 
         public void CancelLogin()

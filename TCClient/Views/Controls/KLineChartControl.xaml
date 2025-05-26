@@ -12,24 +12,60 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- 左侧功能按钮区域 -->
-        <StackPanel Grid.Column="0" Margin="10">
-            <GroupBox Header="显示设置" Margin="0,0,0,10">
-                <StackPanel>
-                    <TextBlock Text="K线数量：" Margin="0,5"/>
-                    <TextBox x:Name="KLineCountTextBox" Text="200" Margin="0,5"/>
-                    <Button Content="更新显示" Margin="0,5" Click="UpdateDisplayButton_Click"/>
-                </StackPanel>
-            </GroupBox>
-
-            <GroupBox Header="数据管理" Margin="0,0,0,10">
-                <StackPanel>
-                    <Button Content="获取K线数据" Margin="0,5" Click="FetchKLineDataButton_Click"/>
-                    <Button Content="保存K线数据" Margin="0,5" Click="SaveKLineDataButton_Click"/>
-                    <Button Content="加载本地数据" Margin="0,5" Click="LoadLocalDataButton_Click"/>
-                </StackPanel>
-            </GroupBox>
-        </StackPanel>
+        <!-- 左侧自定义合约列表区域 -->
+        <Grid Grid.Column="0" Margin="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- 操作按钮 -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                <Button x:Name="AddContractButton" Content="增加自选" Width="80" Height="28" Margin="0,0,5,0" 
+                        FontSize="11" Click="AddContractButton_Click" Background="#4CAF50" Foreground="White"/>
+                <Button x:Name="RemoveContractButton" Content="删除自选" Width="80" Height="28" 
+                        FontSize="11" Click="RemoveContractButton_Click" Background="#F44336" Foreground="White"/>
+            </StackPanel>
+            
+            <!-- 合约列表 -->
+            <DataGrid Grid.Row="1" x:Name="ContractListDataGrid" 
+                      ItemsSource="{Binding CustomContracts}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      SelectionMode="Single"
+                      GridLinesVisibility="Horizontal"
+                      HeadersVisibility="Column"
+                      CanUserReorderColumns="False"
+                      CanUserResizeColumns="True"
+                      CanUserSortColumns="False"
+                      MouseDoubleClick="ContractListDataGrid_MouseDoubleClick"
+                      FontSize="10">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
+                    <DataGridTextColumn Header="涨幅%" Binding="{Binding PriceChangePercent, StringFormat={}{0:F2}%}" Width="50">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding PriceChangePercent, Converter={x:Static local:GreaterThanZeroConverter.Instance}}" Value="True">
+                                        <Setter Property="Foreground" Value="#4CAF50"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding PriceChangePercent, Converter={x:Static local:LessThanZeroConverter.Instance}}" Value="True">
+                                        <Setter Property="Foreground" Value="#F44336"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+                    <DataGridTextColumn Header="最新价" Binding="{Binding LastPrice, StringFormat={}{0:F4}}" Width="70"/>
+                    <DataGridTextColumn Header="成交额" Binding="{Binding Volume, StringFormat={}{0:F0}}" Width="*"/>
+                </DataGrid.Columns>
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Height" Value="22"/>
+                    </Style>
+                </DataGrid.RowStyle>
+            </DataGrid>
+        </Grid>
 
         <!-- 右侧K线图区域 -->
         <Grid Grid.Column="1" Margin="10">

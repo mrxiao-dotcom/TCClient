@@ -181,20 +181,7 @@ namespace TCClient.Services
             {
                 LogManager.Log("ConditionalOrderService", $"开始执行条件单 ID={order.Id}");
                 
-                // 1. 查询open推仓
-                var pushInfo = await _databaseService.GetOpenPushInfoAsync(order.AccountId, order.Symbol);
-                if (pushInfo == null)
-                {
-                    LogManager.Log("ConditionalOrderService", "[执行条件单] 未找到open推仓，准备新建推仓信息...");
-                    pushInfo = await _databaseService.CreatePushInfoAsync(order.AccountId, order.Symbol);
-                    LogManager.Log("ConditionalOrderService", $"[执行条件单] 新建推仓信息成功，推仓ID={pushInfo.Id}");
-                }
-                else
-                {
-                    LogManager.Log("ConditionalOrderService", $"[执行条件单] 已存在open推仓，推仓ID={pushInfo.Id}");
-                }
-
-                // 2. 插入订单
+                // 创建订单对象
                 var simulationOrder = new SimulationOrder
                 {
                     OrderId = Guid.NewGuid().ToString(),
@@ -213,14 +200,10 @@ namespace TCClient.Services
                     OpenTime = DateTime.Now
                 };
                 
-                LogManager.Log("ConditionalOrderService", "[执行条件单] 开始插入订单...");
+                LogManager.Log("ConditionalOrderService", "[执行条件单] 开始创建订单和推仓信息...");
+                // InsertSimulationOrderAsync 方法已经包含了推仓信息的创建和关联，无需重复操作
                 long orderId = await _databaseService.InsertSimulationOrderAsync(simulationOrder);
-                LogManager.Log("ConditionalOrderService", $"[执行条件单] 订单插入成功，订单ID={orderId}");
-
-                // 3. 插入推仓-订单关联
-                LogManager.Log("ConditionalOrderService", $"[执行条件单] 插入推仓-订单关联，推仓ID={pushInfo.Id}，订单ID={orderId}");
-                await _databaseService.InsertPushOrderRelAsync(pushInfo.Id, orderId);
-                LogManager.Log("ConditionalOrderService", "[执行条件单] 推仓-订单关联插入成功");
+                LogManager.Log("ConditionalOrderService", $"[执行条件单] 订单和推仓信息创建成功，订单ID={orderId}");
 
                 // 4. 更新条件单状态为已执行，记录执行的订单ID
                 await UpdateOrderToExecutedAsync(order.Id, simulationOrder.OrderId);

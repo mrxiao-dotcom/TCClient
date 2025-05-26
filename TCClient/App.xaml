@@ -14,6 +14,7 @@
             <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
             <converters:TestResultColorConverter x:Key="TestResultColorConverter"/>
             <utils:BooleanToStatusConverter x:Key="BooleanToStatusConverter"/>
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
             
             <!-- 全局样式定义 -->
             <Style TargetType="Button">

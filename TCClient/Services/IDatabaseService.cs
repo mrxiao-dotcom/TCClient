@@ -61,6 +61,7 @@ namespace TCClient.Services
 
         // 排行榜相关
         Task<List<RankingData>> GetRankingDataAsync(DateTime startDate, DateTime endDate);
+        Task<List<DailyRanking>> GetDailyRankingDataAsync(DateTime startDate, DateTime endDate);
 
         // 推仓相关
         Task<PositionPushInfo> GetOpenPushInfoAsync(long accountId, string contract);
@@ -70,6 +71,7 @@ namespace TCClient.Services
         Task<PushSummaryInfo> GetPushSummaryInfoAsync(long accountId, string contract);
         Task<decimal> GetAccountAvailableRiskAmountAsync(long accountId);
         Task<decimal> GetContractAvailableRiskAmountAsync(long accountId, string contract);
+        Task<bool> UpdatePushInfoStatusAsync(long pushId, string status, DateTime? closeTime = null);
 
         // 用户-账户关联相关
         Task AddUserTradingAccountAsync(long userId, long accountId, bool isDefault, CancellationToken cancellationToken = default);

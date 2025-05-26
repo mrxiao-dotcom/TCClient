@@ -14,6 +14,7 @@
         <utils:PercentToDecimalConverter x:Key="PercentToDecimalConverter"/>
         <utils:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <utils:PnLColorConverter x:Key="PnLColorConverter"/>
+        <utils:PriceFormatConverter x:Key="PriceFormatConverter"/>
         
         <!-- 按钮样式 -->
         <Style x:Key="PeriodButtonStyle" TargetType="Button">
@@ -47,253 +48,272 @@
             </Grid.ColumnDefinitions>
 
             <!-- 左侧下单参数 -->
-            <GroupBox Grid.Column="0" Header="下单交易参数" Margin="0,0,10,0" MinHeight="600">
-                <Grid Margin="20">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="120"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+            <GroupBox Grid.Column="0" Header="下单交易参数" Margin="0,0,10,0" MaxHeight="400">
+                <Grid>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
+                    
+                    <!-- 滚动区域：包含交易参数、止损设置、账户信息 -->
+                    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="10">
+                            
+                            <!-- 交易参数区域 -->
+                            <Border BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="3" Padding="8" Margin="0,0,0,8" Background="#FAFAFA">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
 
-                    <!-- 合约输入 -->
-                    <TextBlock Text="合约：" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                    <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,30">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="ContractTextBox" Grid.Column="0" Margin="0,0,5,0" Height="30" FontSize="14" VerticalContentAlignment="Center"/>
-                        <Button x:Name="QueryContractButton" Grid.Column="1" Content="查询" Width="80" Height="30" FontSize="14" Click="QueryContractButton_Click"/>
-                    </Grid>
+                        <!-- 第一行：合约和方向 -->
+                        <Grid Grid.Row="0" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBlock Grid.Column="0" Text="合约：" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="12" HorizontalAlignment="Right"/>
+                            <Grid Grid.Column="1" Margin="0,0,15,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="ContractTextBox" Grid.Column="0" Margin="0,0,3,0" Height="24" FontSize="12" VerticalContentAlignment="Center"/>
+                                <Button x:Name="QueryContractButton" Grid.Column="1" Content="查询" Width="50" Height="24" FontSize="11" Click="QueryContractButton_Click"/>
+                            </Grid>
+                            
+                            <TextBlock Grid.Column="2" Text="方向：" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="12"/>
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Height="24">
+                                <RadioButton Content="买入" IsChecked="True" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11"/>
+                                <RadioButton Content="卖出" VerticalAlignment="Center" FontSize="11"/>
+                            </StackPanel>
+                        </Grid>
 
-                    <!-- 交易方向 -->
-                    <TextBlock Text="方向：" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,30" Height="30">
-                        <RadioButton Content="买入" IsChecked="True" Margin="0,0,20,0" VerticalAlignment="Center" FontSize="14"/>
-                        <RadioButton Content="卖出" VerticalAlignment="Center" FontSize="14"/>
-                    </StackPanel>
+                        <!-- 第二行：类型和条件单设置 -->
+                        <Grid Grid.Row="1" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBlock Grid.Column="0" Text="类型：" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="12"/>
+                            <ComboBox x:Name="OrderTypeComboBox" 
+                                     Grid.Column="1" 
+                                     Margin="0,0,15,0" 
+                                     Width="100" 
+                                     Height="24"
+                                     FontSize="11"
+                                     VerticalContentAlignment="Center"
+                                     SelectionChanged="OrderTypeComboBox_SelectionChanged">
+                                <ComboBoxItem Content="市价下单" IsSelected="True"/>
+                                <ComboBoxItem Content="条件单"/>
+                            </ComboBox>
+                            
+                            <!-- 条件单设置 (初始隐藏) -->
+                            <StackPanel x:Name="ConditionalOrderGrid" Grid.Column="2" Orientation="Horizontal" Visibility="Collapsed">
+                                <RadioButton x:Name="BreakUpRadio" Content="向上突破" IsChecked="True" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11" GroupName="ConditionType"/>
+                                <RadioButton x:Name="BreakDownRadio" Content="向下突破" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11" GroupName="ConditionType"/>
+                                <TextBlock Text="触发价：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
+                                <TextBox x:Name="TriggerPriceTextBox" Width="80" Height="24" FontSize="11" VerticalContentAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
 
-                    <!-- 订单类型 -->
-                    <TextBlock Text="类型：" Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                    <ComboBox x:Name="OrderTypeComboBox" 
-                             Grid.Row="2" Grid.Column="1" 
-                             Margin="0,0,0,30" 
-                             Width="150" 
-                             Height="30"
-                             FontSize="14"
-                             HorizontalAlignment="Left"
-                             VerticalContentAlignment="Center"
-                             SelectionChanged="OrderTypeComboBox_SelectionChanged">
-                        <ComboBoxItem Content="市价下单" IsSelected="True"/>
-                        <ComboBoxItem Content="条件单"/>
-                    </ComboBox>
+                        <!-- 第三行：数量、价格、杠杆 -->
+                        <Grid Grid.Row="2" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBlock Grid.Column="0" Text="数量：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12" ToolTip="请输入数量或使用'以损定量'按钮"/>
+                            <TextBox x:Name="QuantityTextBox" 
+                                    Grid.Column="1" 
+                                    Margin="0,0,10,0"
+                                    Width="80"
+                                    Height="24"
+                                    FontSize="11"
+                                    VerticalContentAlignment="Center"
+                                    Text="{Binding OrderQuantity, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                                    ToolTip="请输入数量或点击'以损定量'按钮自动计算"/>
 
-                    <!-- 条件单设置 (初始隐藏) -->
-                    <Grid x:Name="ConditionalOrderGrid" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,30" Visibility="Collapsed">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="2" Text="价格：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                            <TextBox x:Name="PriceTextBox" 
+                                    Grid.Column="3" 
+                                    Margin="0,0,10,0"
+                                    Width="80"
+                                    Height="24"
+                                    FontSize="11"
+                                    VerticalContentAlignment="Center"
+                                    Text="{Binding LatestPrice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    TextChanged="PriceTextBox_TextChanged"/>
 
-                        <!-- 条件类型 -->
-                        <TextBlock Text="条件类型：" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,10" FontSize="14" HorizontalAlignment="Right"/>
-                        <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
-                            <RadioButton x:Name="BreakUpRadio" Content="向上突破" IsChecked="True" Margin="0,0,20,0" VerticalAlignment="Center" FontSize="14" GroupName="ConditionType"/>
-                            <RadioButton x:Name="BreakDownRadio" Content="向下突破" VerticalAlignment="Center" FontSize="14" GroupName="ConditionType"/>
-                        </StackPanel>
+                            <TextBlock Grid.Column="4" Text="杠杆：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                            <TextBox x:Name="LeverageTextBox" 
+                                    Grid.Column="5" 
+                                    Text="3" 
+                                    Width="50"
+                                    Height="24"
+                                    FontSize="11"
+                                    HorizontalAlignment="Left"
+                                    VerticalContentAlignment="Center"
+                                    TextChanged="LeverageTextBox_TextChanged"/>
+                        </Grid>
 
-                        <!-- 触发价格 -->
-                        <TextBlock Text="触发价格：" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                        <TextBox x:Name="TriggerPriceTextBox" 
-                                Grid.Row="1" Grid.Column="1" 
-                                Width="150"
-                                Height="30"
-                                FontSize="14"
-                                HorizontalAlignment="Left"
-                                VerticalContentAlignment="Center"/>
-                    </Grid>
-
-                    <!-- 开仓数量 -->
-                    <TextBlock Text="数量：" Grid.Row="4" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                    <TextBox x:Name="QuantityTextBox" 
-                            Grid.Row="4" Grid.Column="1" 
-                            Margin="0,0,0,30"
-                            Width="150"
-                            Height="30"
-                            FontSize="14"
-                            HorizontalAlignment="Left"
-                            VerticalContentAlignment="Center"
-                            Text="{Binding OrderQuantity, UpdateSourceTrigger=LostFocus, Mode=TwoWay}"/>
-
-                    <!-- 开仓价格 -->
-                    <TextBlock Text="价格：" Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                    <TextBox x:Name="PriceTextBox" 
-                            Grid.Row="5" Grid.Column="1" 
-                            Margin="0,0,0,30"
-                            Width="150"
-                            Height="30"
-                            FontSize="14"
-                            HorizontalAlignment="Left"
-                            VerticalContentAlignment="Center"
-                            Text="{Binding LatestPrice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                            TextChanged="PriceTextBox_TextChanged"/>
-
-                    <!-- 止损设置 -->
-                    <Grid Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,0,30">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="120"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- 止损标题 -->
-                        <TextBlock Text="止损设置：" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-
-                        <!-- 止损比例 -->
-                        <TextBlock Text="比例：" Grid.Column="1" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14"/>
-                        <TextBox x:Name="StopLossPercentageTextBox" 
-                                Grid.Column="2" 
-                                Width="80" 
-                                Height="30"
-                                FontSize="14"
-                                Margin="0,0,15,0"
-                                VerticalContentAlignment="Center"
-                                TextChanged="StopLossPercentageTextBox_TextChanged"/>
-
-                        <!-- 止损价格 -->
-                        <TextBlock Text="价格：" Grid.Column="3" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14"/>
-                        <TextBox x:Name="StopLossPriceTextBox" 
-                                Grid.Column="4" 
-                                Width="80" 
-                                Height="30"
-                                FontSize="14"
-                                Margin="0,0,15,0"
-                                VerticalContentAlignment="Center"
-                                TextChanged="StopLossPriceTextBox_TextChanged"/>
-
-                        <!-- 止损金额 -->
-                        <TextBlock Text="金额：" Grid.Column="5" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14"/>
-                        <TextBox x:Name="StopLossAmountTextBox" 
-                                Grid.Column="6" 
-                                Width="80" 
-                                Height="30"
-                                FontSize="14"
-                                Margin="0,0,5,0"
-                                VerticalContentAlignment="Center"
-                                TextChanged="StopLossAmountTextBox_TextChanged"/>
-                        
-                        <!-- 调整按钮 -->
-                        <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button Content="-" Width="30" Height="30" Margin="0,0,2,0" Click="DecreaseStopLossAmount_Click" FontSize="14"/>
-                            <Button Content="+" Width="30" Height="30" Margin="0,0,15,0" Click="IncreaseStopLossAmount_Click" FontSize="14"/>
-                        </StackPanel>
-
-                        <!-- 以损定量按钮 -->
-                        <Button Content="以损定量" 
-                                Grid.Column="8"
-                                Width="120" 
-                                Height="30"
-                                FontSize="14"
-                                Margin="0,0,0,0"
-                                Click="CalculateQuantityByStopLoss_Click"/>
-                    </Grid>
-
-                    <!-- 杠杆设置 -->
-                    <TextBlock Text="杠杆：" Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                    <Grid Grid.Row="7" Grid.Column="1" Margin="0,0,0,30">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- 杠杆输入框 -->
-                        <TextBox x:Name="LeverageTextBox" 
-                                Grid.Column="0" 
-                                Text="3" 
-                                Width="80"
-                                Height="30"
-                                FontSize="14"
-                                Margin="0,0,15,0"
-                                VerticalContentAlignment="Center"
-                                TextChanged="LeverageTextBox_TextChanged"/>
-
-                        <!-- 杠杆快捷按钮 -->
-                        <StackPanel Grid.Column="1" 
-                                  Orientation="Horizontal"
-                                  Height="30"
-                                  VerticalAlignment="Center">
+                        <!-- 第四行：杠杆快捷按钮 -->
+                        <StackPanel Grid.Row="3" Orientation="Horizontal" Height="22">
+                            <TextBlock Text="快捷杠杆：" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="11" Foreground="#666"/>
                             <Button Content="1x" Style="{StaticResource PeriodButtonStyle}" 
-                                    Click="LeverageButton_Click" Tag="1" Margin="0,0,5,0" Height="30" FontSize="14"/>
+                                    Click="LeverageButton_Click" Tag="1" Margin="0,0,3,0" Height="22" FontSize="10" Padding="8,2"/>
                             <Button Content="3x" Style="{StaticResource PeriodButtonStyle}" 
-                                    Click="LeverageButton_Click" Tag="3" Margin="0,0,5,0" Height="30" FontSize="14" Background="LightBlue"/>
+                                    Click="LeverageButton_Click" Tag="3" Margin="0,0,3,0" Height="22" FontSize="10" Padding="8,2" Background="LightBlue"/>
                             <Button Content="5x" Style="{StaticResource PeriodButtonStyle}" 
-                                    Click="LeverageButton_Click" Tag="5" Margin="0,0,5,0" Height="30" FontSize="14"/>
+                                    Click="LeverageButton_Click" Tag="5" Margin="0,0,3,0" Height="22" FontSize="10" Padding="8,2"/>
                             <Button Content="10x" Style="{StaticResource PeriodButtonStyle}" 
-                                    Click="LeverageButton_Click" Tag="10" Margin="0,0,5,0" Height="30" FontSize="14"/>
+                                    Click="LeverageButton_Click" Tag="10" Margin="0,0,3,0" Height="22" FontSize="10" Padding="8,2"/>
                             <Button Content="20x" Style="{StaticResource PeriodButtonStyle}" 
-                                    Click="LeverageButton_Click" Tag="20" Margin="0,0,5,0" Height="30" FontSize="14"/>
+                                    Click="LeverageButton_Click" Tag="20" Margin="0,0,0,0" Height="22" FontSize="10" Padding="8,2"/>
                         </StackPanel>
                     </Grid>
+                </Border>
 
-                    <!-- 账户信息 -->
-                    <TextBlock Text="账户信息：" Grid.Row="8" Grid.Column="0" VerticalAlignment="Top" Margin="0,5,5,0" FontSize="14" HorizontalAlignment="Right"/>
-                    <Grid Grid.Row="8" Grid.Column="1" Margin="0,0,0,30">
+                <!-- 止损设置区域 -->
+                <Border BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="3" Padding="8" Margin="0,0,0,8" Background="#F8F8F8">
+                    <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
 
-                        <!-- 第一行 -->
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="总权益：" Margin="0,0,5,10" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock x:Name="TotalEquityTextBlock" Grid.Row="0" Grid.Column="1" Text="0.00" VerticalAlignment="Center" FontSize="14" Margin="0,0,20,10"/>
-                        <TextBlock Grid.Row="0" Grid.Column="2" Text="可用余额：" Margin="0,0,5,10" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock x:Name="AvailableBalanceTextBlock" Grid.Row="0" Grid.Column="3" Text="0.00" VerticalAlignment="Center" FontSize="14" Margin="0,0,0,10"/>
+                        <!-- 标题 -->
+                        <TextBlock Grid.Row="0" Text="止损设置" FontSize="12" FontWeight="Bold" Margin="0,0,0,6" Foreground="#333"/>
 
-                        <!-- 第二行 -->
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="持仓保证金：" Margin="0,0,5,0" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock x:Name="PositionMarginTextBlock" Grid.Row="1" Grid.Column="1" Text="0.00" VerticalAlignment="Center" FontSize="14" Margin="0,0,20,0"/>
-                        <TextBlock Grid.Row="1" Grid.Column="2" Text="未实现盈亏：" Margin="0,0,5,0" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock x:Name="UnrealizedPnLTextBlock" Grid.Row="1" Grid.Column="3" Text="0.00" VerticalAlignment="Center" FontSize="14"/>
+                                            <!-- 止损参数 -->
+                    <Grid Grid.Row="1">
+                        <!-- 止损比例、价格、金额、调整按钮、以损定量按钮 -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                            <TextBlock Text="比例：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
+                            <TextBox x:Name="StopLossPercentageTextBox" 
+                                    Width="60" 
+                                    Height="24"
+                                    FontSize="11"
+                                    Margin="0,0,10,0"
+                                    VerticalContentAlignment="Center"
+                                    TextChanged="StopLossPercentageTextBox_TextChanged"/>
+
+                            <TextBlock Text="价格：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
+                            <TextBox x:Name="StopLossPriceTextBox" 
+                                    Width="60" 
+                                    Height="24"
+                                    FontSize="11"
+                                    Margin="0,0,10,0"
+                                    VerticalContentAlignment="Center"
+                                    TextChanged="StopLossPriceTextBox_TextChanged"/>
+
+                            <TextBlock Text="金额：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
+                            <TextBox x:Name="StopLossAmountTextBox" 
+                                    Width="60" 
+                                    Height="24"
+                                    FontSize="11"
+                                    Margin="0,0,8,0"
+                                    VerticalContentAlignment="Center"
+                                    TextChanged="StopLossAmountTextBox_TextChanged"/>
+                            
+                            <!-- 调整按钮 -->
+                            <Button Content="-" Width="24" Height="24" Margin="0,0,2,0" Click="DecreaseStopLossAmount_Click" FontSize="11"/>
+                            <Button Content="+" Width="24" Height="24" Margin="0,0,10,0" Click="IncreaseStopLossAmount_Click" FontSize="11"/>
+                            
+                            <!-- 以损定量按钮 -->
+                            <Button Content="以损定量" 
+                                    Width="80" 
+                                    Height="24"
+                                    FontSize="11"
+                                    Click="CalculateQuantityByStopLoss_Click"
+                                    ToolTip="根据止损金额自动计算合适的下单数量"/>
+                            <TextBlock Text="(自动计算数量)" 
+                                      VerticalAlignment="Center" 
+                                      Margin="5,0,0,0" 
+                                      FontSize="9" 
+                                      Foreground="#888"/>
+                        </StackPanel>
+                        </Grid>
                     </Grid>
+                </Border>
 
-                    <!-- 下单和取消按钮 -->
-                    <StackPanel Grid.Row="9" Grid.Column="0" Grid.ColumnSpan="2"
-                              Orientation="Horizontal" 
-                              HorizontalAlignment="Center" 
-                              Margin="0,0,0,0"
-                              VerticalAlignment="Center">
-                        <Button Content="下单" Width="120" Height="35" Margin="0,0,30,0" Click="PlaceOrderButton_Click" FontSize="14"/>
-                        <Button Content="取消" Width="120" Height="35" Click="CancelButton_Click" FontSize="14"/>
-                    </StackPanel>
-                </Grid>
-            </GroupBox>
+                <!-- 账户信息区域 - 优化布局，减小边距 -->
+                <Border BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="3" Padding="6" Margin="0,0,0,0" Background="#F0F8FF">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- 标题 -->
+                        <TextBlock Grid.Row="0" Text="账户信息" FontSize="11" FontWeight="Bold" Margin="0,0,0,4" Foreground="#333"/>
+
+                        <!-- 账户数据 -->
+                        <Grid Grid.Row="1">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- 第一行：实时权益、风险次数、单笔风险金 -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBlock Text="实时权益：" Margin="0,0,2,0" VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#4CAF50"/>
+                                <TextBlock Text="{Binding RealTimeEquity, StringFormat={}{0:N2}}" VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#4CAF50" Margin="0,0,12,0"/>
+                                <TextBlock Text="风险次数：" Margin="0,0,2,0" VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#2196F3"/>
+                                <TextBlock Text="{Binding OpportunityCount}" VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#2196F3" Margin="0,0,12,0"/>
+                                <TextBlock Text="单笔风险金：" Margin="0,0,2,0" VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#FF9800"/>
+                                <TextBlock Text="{Binding SingleRiskAmount, StringFormat={}{0:N2}}" VerticalAlignment="Center" FontSize="10" FontWeight="Bold" Foreground="#FF9800"/>
+                            </StackPanel>
+
+                            <!-- 第二行：计算公式 -->
+                            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,3">
+                                <TextBlock Text="计算公式：" Margin="0,0,2,0" VerticalAlignment="Center" FontSize="9" Foreground="#888"/>
+                                <TextBlock Text="{Binding RiskCalculationFormula}" VerticalAlignment="Center" FontSize="9" Foreground="#888"/>
+                            </StackPanel>
+
+                            <!-- 第三行：其他信息 -->
+                            <StackPanel Grid.Row="2" Orientation="Horizontal">
+                                <TextBlock Text="可用余额：" Margin="0,0,2,0" VerticalAlignment="Center" FontSize="10"/>
+                                <TextBlock Text="{Binding AvailableBalance, StringFormat={}{0:N2}}" VerticalAlignment="Center" FontSize="10" Margin="0,0,12,0"/>
+                                <TextBlock Text="持仓保证金：" Margin="0,0,2,0" VerticalAlignment="Center" FontSize="10"/>
+                                <TextBlock Text="{Binding PositionMargin, StringFormat={}{0:N2}}" VerticalAlignment="Center" FontSize="10" Margin="0,0,12,0"/>
+                                <TextBlock Text="未实现盈亏：" Margin="0,0,2,0" VerticalAlignment="Center" FontSize="10"/>
+                                <TextBlock Text="{Binding UnrealizedPnL, StringFormat={}{0:N2}}" VerticalAlignment="Center" FontSize="10"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+        
+        <!-- 固定在底部的操作按钮区域 - 优化布局，减小边距 -->
+        <Border Grid.Row="1" BorderBrush="#E0E0E0" BorderThickness="1,1,1,0" CornerRadius="0,0,3,3" Padding="5" Margin="10,0,10,5" Background="#FFFEF7">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button Content="下单" Width="80" Height="28" Margin="0,0,10,0" Click="PlaceOrderButton_Click" FontSize="12" FontWeight="Bold" Background="#4CAF50" Foreground="White" BorderBrush="#4CAF50"/>
+                <Button Content="一键平仓" Width="80" Height="28" Margin="0,0,10,0" Click="CloseAllPositionsButton_Click" FontSize="12" FontWeight="Bold" Background="#FF9800" Foreground="White" BorderBrush="#FF9800" 
+                        IsEnabled="{Binding HasOpenPositions}" ToolTip="平掉当前合约的所有持仓订单"/>
+                <Button Content="取消" Width="80" Height="28" Click="CancelButton_Click" FontSize="12" Background="#F44336" Foreground="White" BorderBrush="#F44336"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</GroupBox>
+
+
 
             <!-- 中间分隔线 -->
             <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Center" VerticalAlignment="Stretch"/>
@@ -333,25 +353,25 @@
 
                         <!-- 第二行 -->
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="订单总数：" Margin="0,0,5,10" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PushSummary.TotalOrderCount}" Margin="0,0,20,10" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DisplayTotalOrderCount}" Margin="0,0,20,10" VerticalAlignment="Center" FontSize="14"/>
                         <TextBlock Grid.Row="1" Grid.Column="2" Text="持仓中：" Margin="0,0,5,10" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding PushSummary.OpenOrderCount}" Margin="0,0,0,10" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding DisplayOpenOrderCount}" Margin="0,0,0,10" VerticalAlignment="Center" FontSize="14"/>
 
                         <!-- 第三行 -->
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="占用风险金：" Margin="0,0,5,10" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PushSummary.RiskAmount, StringFormat={}{0:N2}}" Margin="0,0,20,10" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="已平仓：" Margin="0,0,5,10" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DisplayClosedOrderCount}" Margin="0,0,20,10" VerticalAlignment="Center" FontSize="14"/>
                         <TextBlock Grid.Row="2" Grid.Column="2" Text="可用风险金：" Margin="0,0,5,10" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="14"/>
-                        <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding PushSummary.AvailableRiskAmount, StringFormat={}{0:N2}}" Margin="0,0,0,10" VerticalAlignment="Center" FontSize="14"/>
+                        <TextBlock Grid.Row="2" Grid.Column="3" Text="{Binding AvailableRiskAmount, StringFormat={}{0:N2}}" Margin="0,0,0,10" VerticalAlignment="Center" FontSize="14"/>
                         
                         <!-- 第四行：可用风险金计算详情 -->
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="计算公式：" Margin="0,0,5,0" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="12" Foreground="#888"/>
-                        <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding PushSummary.AvailableRiskAmountFormula}" 
+                        <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding AvailableRiskAmountFormula}" 
                                    Margin="0,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="#888"/>
                     </Grid>
 
                     <!-- 订单列表 -->
                     <DataGrid Grid.Row="1" 
-                              ItemsSource="{Binding PushSummary.Orders}"
+                              ItemsSource="{Binding OpenOrders}"
                               AutoGenerateColumns="False"
                               IsReadOnly="True"
                               Margin="10,10,10,20">
@@ -359,10 +379,10 @@
                             <DataGridTextColumn Header="订单ID" Binding="{Binding OrderId}" Width="100"/>
                             <DataGridTextColumn Header="方向" Binding="{Binding Direction}" Width="60"/>
                             <DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="80"/>
-                            <DataGridTextColumn Header="开仓价" Binding="{Binding EntryPrice, StringFormat={}{0:N2}}" Width="100"/>
-                            <DataGridTextColumn Header="止损价" Binding="{Binding CurrentStopLoss, StringFormat={}{0:N2}}" Width="100"/>
-                            <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat={}{0:N2}}" Width="100"/>
-                            <DataGridTextColumn Header="最高价" Binding="{Binding HighestPrice, StringFormat={}{0:N2}, TargetNullValue=--}" Width="100"/>
+                            <DataGridTextColumn Header="开仓价" Binding="{Binding EntryPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
+                            <DataGridTextColumn Header="止损价" Binding="{Binding CurrentStopLoss, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
+                            <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
+                            <DataGridTextColumn Header="最高价" Binding="{Binding HighestPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
                             <DataGridTextColumn Header="最大浮盈" Binding="{Binding MaxFloatingProfit, StringFormat={}{0:N2}, TargetNullValue=--}" Width="100">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">

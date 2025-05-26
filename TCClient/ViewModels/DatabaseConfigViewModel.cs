@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using System.Windows;
 using TCClient.Services;
 using TCClient.Commands;
 using System.Collections.ObjectModel;
 using TCClient.Models;
 using System.IO;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace TCClient.ViewModels
 {
@@ -73,19 +76,64 @@ namespace TCClient.ViewModels
             }
         }
 
-        public ICommand TestConnectionCommand { get; }
-        public ICommand SaveCommand { get; }
-        public ICommand CancelCommand { get; }
-        public ICommand AddConnectionCommand { get; }
-        public ICommand RemoveConnectionCommand { get; }
+        public ICommand TestConnectionCommand { get; private set; }
+        public ICommand SaveCommand { get; private set; }
+        public ICommand CancelCommand { get; private set; }
+        public ICommand AddConnectionCommand { get; private set; }
+        public ICommand RemoveConnectionCommand { get; private set; }
 
-        public DatabaseConfigViewModel()
+        public DatabaseConfigViewModel(IDatabaseService databaseService, LocalConfigService configService)
         {
-            _databaseService = new MySqlDatabaseService();
-            _configService = new LocalConfigService();
+            _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
+            _configService = configService ?? throw new ArgumentNullException(nameof(configService));
             _currentConnection = new DatabaseConnection();
             Connections = new ObservableCollection<DatabaseConnection>();
 
+            InitializeCommands();
+            LoadConnections();
+        }
+
+        // 备用构造函数，用于设计时或特殊情况
+        public DatabaseConfigViewModel()
+        {
+            try
+            {
+                // 尝试从应用程序服务容器获取服务
+                var app = Application.Current as App;
+                if (app?.Services != null)
+                {
+                    _databaseService = app.Services.GetService(typeof(IDatabaseService)) as IDatabaseService;
+                    _configService = app.Services.GetService(typeof(LocalConfigService)) as LocalConfigService;
+                }
+                
+                // 如果无法获取服务，创建默认实例
+                if (_databaseService == null || _configService == null)
+                {
+                    // 创建一个空的 ILogger 实例
+                    var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder => { });
+                    var logger = loggerFactory.CreateLogger<MySqlDatabaseService>();
+                    _databaseService = new MySqlDatabaseService(logger);
+                    _configService = new LocalConfigService();
+                }
+            }
+            catch
+            {
+                // 如果出现任何异常，创建默认实例
+                var loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder => { });
+                var logger = loggerFactory.CreateLogger<MySqlDatabaseService>();
+                _databaseService = new MySqlDatabaseService(logger);
+                _configService = new LocalConfigService();
+            }
+
+            _currentConnection = new DatabaseConnection();
+            Connections = new ObservableCollection<DatabaseConnection>();
+
+            InitializeCommands();
+            LoadConnections();
+        }
+
+        private void InitializeCommands()
+        {
             TestConnectionCommand = new RelayCommand(async () => await TestConnectionAsync(), () => !IsTesting && CanTestConnection());
             SaveCommand = new RelayCommand(async () =>
             {
@@ -102,8 +150,6 @@ namespace TCClient.ViewModels
             });
             AddConnectionCommand = new RelayCommand(() => AddConnection());
             RemoveConnectionCommand = new RelayCommand<DatabaseConnection>(RemoveConnection, CanRemoveConnection);
-
-            LoadConnections();
         }
 
         private async void LoadConnections()

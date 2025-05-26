@@ -15,6 +15,7 @@
         <utils:PnLColorConverter x:Key="PnLColorConverter"/>
         <utils:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <utils:EnumToVisibilityConverter x:Key="EnumToVisibilityConverter"/>
+        <utils:PriceFormatConverter x:Key="PriceFormatConverter"/>
         <Style TargetType="Button">
             <Setter Property="Margin" Value="5"/>
             <Setter Property="Padding" Value="10,5"/>
@@ -56,9 +57,9 @@
                             <DataGridTextColumn Header="合约" Binding="{Binding Contract}" Width="100"/>
                             <DataGridTextColumn Header="方向" Binding="{Binding Direction}" Width="60"/>
                             <DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="60"/>
-                            <DataGridTextColumn Header="开仓价格" Binding="{Binding EntryPrice, StringFormat=N2}" Width="100"/>
-                            <DataGridTextColumn Header="当前价格" Binding="{Binding CurrentPrice, StringFormat=N2}" Width="100"/>
-                            <DataGridTextColumn Header="最高价格" Binding="{Binding HighestPrice, StringFormat=N2, TargetNullValue=--}" Width="100"/>
+                            <DataGridTextColumn Header="开仓价格" Binding="{Binding EntryPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
+                            <DataGridTextColumn Header="当前价格" Binding="{Binding CurrentPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
+                            <DataGridTextColumn Header="最高价格" Binding="{Binding HighestPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
                             <DataGridTextColumn Header="最大浮盈" Binding="{Binding MaxFloatingProfit, StringFormat=N2, TargetNullValue=--}" Width="100">
                                 <DataGridTextColumn.ElementStyle>
                                     <Style TargetType="TextBlock">
@@ -66,7 +67,7 @@
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
-                            <DataGridTextColumn Header="止损价格" Binding="{Binding CurrentStopLoss, StringFormat=N2}" Width="100"/>
+                            <DataGridTextColumn Header="止损价格" Binding="{Binding CurrentStopLoss, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
                             <DataGridTextColumn Header="杠杆" Binding="{Binding Leverage}" Width="60"/>
                             <DataGridTextColumn Header="浮动盈亏" Binding="{Binding FloatingPnL, StringFormat=N2}" Width="100">
                                 <DataGridTextColumn.ElementStyle>
@@ -106,8 +107,8 @@
                             <DataGridTextColumn Header="方向" Binding="{Binding Direction}" Width="60"/>
                             <DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="60"/>
                             <DataGridTextColumn Header="条件类型" Binding="{Binding ConditionTypeDisplay}" Width="100"/>
-                            <DataGridTextColumn Header="触发价格" Binding="{Binding TriggerPrice, StringFormat=N2}" Width="100"/>
-                            <DataGridTextColumn Header="止损价格" Binding="{Binding StopLossPrice, StringFormat=N2}" Width="100"/>
+                            <DataGridTextColumn Header="触发价格" Binding="{Binding TriggerPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
+                            <DataGridTextColumn Header="止损价格" Binding="{Binding StopLossPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
                             <DataGridTextColumn Header="杠杆" Binding="{Binding Leverage}" Width="60"/>
                             <DataGridTextColumn Header="状态" Binding="{Binding StatusDisplay}" Width="80"/>
                             <DataGridTextColumn Header="创建时间" Binding="{Binding CreateTime, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="150"/>

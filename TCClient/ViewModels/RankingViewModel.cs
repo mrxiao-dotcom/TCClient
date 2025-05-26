@@ -30,7 +30,8 @@ namespace TCClient.ViewModels
                 {
                     _selectedDate = value;
                     OnPropertyChanged();
-                    LoadRankingDataAsync().ConfigureAwait(false);
+                    // 使用 Task.Run 避免阻塞UI线程
+                    _ = Task.Run(async () => await LoadRankingDataAsync());
                 }
             }
         }
@@ -63,51 +64,97 @@ namespace TCClient.ViewModels
             _messageService = messageService;
             _selectedDate = DateTime.Today;
             RefreshCommand = new RelayCommand(async () => await LoadRankingDataAsync());
-            LoadRankingDataAsync().ConfigureAwait(false);
+            
+            // 延迟初始化数据加载，避免构造函数中的异步操作
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(new Action(async () =>
+            {
+                await LoadRankingDataAsync();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private async Task LoadRankingDataAsync()
         {
             try
             {
-                IsLoading = true;
-                StatusMessage = "正在加载排行榜数据...";
+                // 确保UI更新在UI线程上执行
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    IsLoading = true;
+                    StatusMessage = "正在加载排行榜数据...";
+                });
+                
                 var startDate = SelectedDate.AddDays(-29);
                 var endDate = SelectedDate;
-                var rankingData = await _databaseService.GetRankingDataAsync(startDate, endDate);
-                TopGainerRows.Clear();
-                TopLoserRows.Clear();
-                // 按日期分组
-                var grouped = rankingData.GroupBy(r => r.RecordTime.Date).OrderByDescending(g => g.Key);
-                foreach (var group in grouped)
+                
+                LogManager.Log("RankingViewModel", $"开始加载排行榜数据，日期范围：{startDate:yyyy-MM-dd} 至 {endDate:yyyy-MM-dd}");
+                
+                // 使用新的 daily_ranking 表数据
+                var dailyRankingData = await _databaseService.GetDailyRankingDataAsync(startDate, endDate);
+                
+                LogManager.Log("RankingViewModel", $"从数据库获取到 {dailyRankingData?.Count ?? 0} 条记录");
+                
+                // 在UI线程上更新集合
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    var date = group.Key;
-                    // 涨幅榜：按 ChangeRate 降序取前10
-                    var gainers = group.OrderByDescending(r => r.ChangeRate).Take(10).ToList();
-                    var gRow = new RankingRow { Date = date };
-                    for (int i = 0; i < gainers.Count; i++)
+                    TopGainerRows.Clear();
+                    TopLoserRows.Clear();
+                    
+                    if (dailyRankingData != null && dailyRankingData.Count > 0)
                     {
-                        var item = gainers[i];
-                        var text = $"{item.Symbol}\n{item.ChangePercent:N2}%";
-                        typeof(RankingRow).GetProperty($"Rank{i + 1}").SetValue(gRow, text);
+                        foreach (var dailyRanking in dailyRankingData)
+                        {
+                            LogManager.Log("RankingViewModel", $"处理日期 {dailyRanking.Date:yyyy-MM-dd} 的数据");
+                            LogManager.Log("RankingViewModel", $"TopGainers: {dailyRanking.TopGainers}");
+                            LogManager.Log("RankingViewModel", $"TopLosers: {dailyRanking.TopLosers}");
+                            
+                            // 处理涨幅榜数据
+                            var gainers = dailyRanking.GetTopGainersList();
+                            LogManager.Log("RankingViewModel", $"解析到 {gainers.Count} 个涨幅项目");
+                            
+                            var gRow = new RankingRow { Date = dailyRanking.Date };
+                            for (int i = 0; i < Math.Min(gainers.Count, 10); i++)
+                            {
+                                var item = gainers[i];
+                                var text = item.DisplayText;
+                                LogManager.Log("RankingViewModel", $"涨幅榜第{i+1}位: {text}");
+                                typeof(RankingRow).GetProperty($"Rank{i + 1}").SetValue(gRow, text);
+                            }
+                            TopGainerRows.Add(gRow);
+                            
+                            // 处理跌幅榜数据
+                            var losers = dailyRanking.GetTopLosersList();
+                            LogManager.Log("RankingViewModel", $"解析到 {losers.Count} 个跌幅项目");
+                            
+                            var lRow = new RankingRow { Date = dailyRanking.Date };
+                            for (int i = 0; i < Math.Min(losers.Count, 10); i++)
+                            {
+                                var item = losers[i];
+                                var text = item.DisplayText;
+                                LogManager.Log("RankingViewModel", $"跌幅榜第{i+1}位: {text}");
+                                typeof(RankingRow).GetProperty($"Rank{i + 1}").SetValue(lRow, text);
+                            }
+                            TopLoserRows.Add(lRow);
+                        }
+                        
+                        StatusMessage = $"数据加载完成，显示 {startDate:yyyy-MM-dd} 至 {endDate:yyyy-MM-dd} 的排行榜数据，共 {dailyRankingData.Count} 天";
+                        LogManager.Log("RankingViewModel", $"UI更新完成，涨幅榜 {TopGainerRows.Count} 行，跌幅榜 {TopLoserRows.Count} 行");
                     }
-                    TopGainerRows.Add(gRow);
-                    // 跌幅榜：按 ChangeRate 升序取前10
-                    var losers = group.OrderBy(r => r.ChangeRate).Take(10).ToList();
-                    var lRow = new RankingRow { Date = date };
-                    for (int i = 0; i < losers.Count; i++)
+                    else
                     {
-                        var item = losers[i];
-                        var text = $"{item.Symbol}\n{item.ChangePercent:N2}%";
-                        typeof(RankingRow).GetProperty($"Rank{i + 1}").SetValue(lRow, text);
+                        StatusMessage = $"未找到 {startDate:yyyy-MM-dd} 至 {endDate:yyyy-MM-dd} 期间的排行榜数据";
+                        LogManager.Log("RankingViewModel", "没有找到任何数据");
                     }
-                    TopLoserRows.Add(lRow);
-                }
-                StatusMessage = $"数据加载完成，显示 {startDate:yyyy-MM-dd} 至 {endDate:yyyy-MM-dd} 的排行榜数据";
+                });
             }
             catch (Exception ex)
             {
-                StatusMessage = $"加载数据失败：{ex.Message}";
+                LogManager.LogException("RankingViewModel", ex, "加载排行榜数据时发生异常");
+                
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    StatusMessage = $"加载数据失败：{ex.Message}";
+                });
+                
                 _messageService.ShowMessage(
                     $"加载排行榜数据失败：{ex.Message}",
                     "错误",
@@ -116,7 +163,10 @@ namespace TCClient.ViewModels
             }
             finally
             {
-                IsLoading = false;
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    IsLoading = false;
+                });
             }
         }
     }
