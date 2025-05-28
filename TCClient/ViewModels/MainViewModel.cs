@@ -737,36 +737,33 @@ namespace TCClient.ViewModels
                 var accounts = await _userService.GetTradingAccountsAsync();
                 if (accounts.Any())
                 {
+                    // 如果当前已经选择了账户，使用当前选择的账户
+                    if (SelectedAccount != null)
+                    {
+                        CurrentAccountIdDisplay = $"当前账户ID：{SelectedAccount.Id}";
+                        // 确保AppSession中的账户ID与选择的账户一致
+                        AppSession.CurrentAccountId = SelectedAccount.Id;
+                        return;
+                    }
+                    
+                    // 如果没有选择账户，尝试使用默认账户
                     var defaultAccount = accounts.FirstOrDefault(a => a.IsDefaultAccount);
                     if (defaultAccount != null)
                     {
-                        // 如果有默认账户，显示默认账户信息
+                        // 只有在没有选择账户时才使用默认账户
+                        SelectedAccount = defaultAccount;
+                        AppSession.CurrentAccountId = defaultAccount.Id;
                         CurrentAccountIdDisplay = $"当前账户ID：{defaultAccount.Id}";
-                        if (SelectedAccount == null || SelectedAccount.Id != defaultAccount.Id)
-                        {
-                            // 如果当前选择的不是默认账户，自动切换到默认账户
-                            SelectedAccount = defaultAccount;
-                            AppSession.CurrentAccountId = defaultAccount.Id;
-                            StatusMessage = $"已自动选择默认账户：{defaultAccount.AccountName}";
-                        }
+                        StatusMessage = $"已自动选择默认账户：{defaultAccount.AccountName}";
                     }
                     else
                     {
-                        // 如果没有默认账户但有其他账户
-                        var currentId = AppSession.CurrentAccountId;
-                        if (currentId > 0)
-                        {
-                            CurrentAccountIdDisplay = $"当前账户ID：{currentId}";
-                        }
-                        else
-                        {
-                            // 如果没有选择任何账户，选择第一个
-                            var firstAccount = accounts.First();
-                            SelectedAccount = firstAccount;
-                            AppSession.CurrentAccountId = firstAccount.Id;
-                            CurrentAccountIdDisplay = $"当前账户ID：{firstAccount.Id}";
-                            StatusMessage = "已选择第一个可用账户";
-                        }
+                        // 如果没有默认账户，选择第一个可用账户
+                        var firstAccount = accounts.First();
+                        SelectedAccount = firstAccount;
+                        AppSession.CurrentAccountId = firstAccount.Id;
+                        CurrentAccountIdDisplay = $"当前账户ID：{firstAccount.Id}";
+                        StatusMessage = "已选择第一个可用账户";
                     }
                 }
                 else
@@ -860,9 +857,9 @@ namespace TCClient.ViewModels
                     // 设置当前账户ID
                     AppSession.CurrentAccountId = dialog.SelectedAccount.Id;
                     
-                    // 更新状态栏显示
+                    // 直接更新状态栏显示，不调用UpdateCurrentAccountIdDisplay
                     CurrentAccount = dialog.SelectedAccount.AccountName;
-                    await UpdateCurrentAccountIdDisplay();
+                    CurrentAccountIdDisplay = $"当前账户ID：{dialog.SelectedAccount.Id}";
                     
                     // 重新加载账户数据
                     LoadAccountData();

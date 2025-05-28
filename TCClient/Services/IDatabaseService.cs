@@ -74,6 +74,7 @@ namespace TCClient.Services
         Task<bool> UpdatePushInfoStatusAsync(long pushId, string status, DateTime? closeTime = null);
         Task<List<SimulationOrder>> GetAllOpenOrdersAsync();
         Task<List<PushSummaryInfo>> GetAllPushInfosAsync(long accountId);
+        Task<List<PushSummaryInfo>> GetAllPushSummaryInfosAsync();
         Task<List<SimulationOrder>> GetPushOrdersAsync(long pushId);
 
         // 用户-账户关联相关

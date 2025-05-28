@@ -129,6 +129,9 @@ namespace TCClient.Services
                                 }
                             }
                         }
+                        
+                        // 检查推仓状态（每次循环都检查）
+                        await CheckAllPushStatusAsync();
                     }
                     catch (Exception ex)
                     {
@@ -223,7 +226,6 @@ namespace TCClient.Services
             {
                 bool shouldStopLoss = false;
                 string stopLossReason = "";
-                bool stopLossUpdated = false;
                 
                 // 首先检查是否需要更新移动止损
                 await CheckAndUpdateTrailingStopLossAsync(order, currentPrice);
@@ -543,6 +545,38 @@ namespace TCClient.Services
             {
                 LogManager.LogException("StopLossMonitorService", ex, "检查推仓状态时发生错误");
                 _logger?.LogError(ex, "检查推仓状态时发生错误");
+            }
+        }
+
+        /// <summary>
+        /// 检查并更新所有推仓状态
+        /// </summary>
+        private async Task CheckAllPushStatusAsync()
+        {
+            try
+            {
+                // 获取所有合约的推仓信息
+                var pushSummaries = await _databaseService.GetAllPushSummaryInfosAsync();
+                
+                foreach (var pushSummary in pushSummaries)
+                {
+                    // 检查是否所有订单都已平仓
+                    var openOrdersCount = pushSummary.Orders?.Count(o => o.Status.ToLower() == "open") ?? 0;
+                    
+                    if (openOrdersCount == 0)
+                    {
+                        // 所有订单都已平仓，更新推仓状态为已完结
+                        await _databaseService.UpdatePushInfoStatusAsync(pushSummary.PushId, "closed", DateTime.Now);
+                        
+                        LogManager.Log("StopLossMonitorService", $"推仓 {pushSummary.PushId} 所有订单已平仓，状态更新为已完结");
+                        _logger?.LogInformation("推仓 {pushId} 所有订单已平仓，状态更新为已完结", pushSummary.PushId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("StopLossMonitorService", ex, "检查所有推仓状态时发生错误");
+                _logger?.LogError(ex, "检查所有推仓状态时发生错误");
             }
         }
 

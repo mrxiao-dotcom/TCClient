@@ -1235,79 +1235,88 @@ namespace TCClient.Services
 
         public async Task<bool> CreateTradingAccountAsync(TradingAccount account, CancellationToken cancellationToken = default)
         {
-            using (var connection = new MySqlConnection(_connectionString))
+            try
             {
-                await connection.OpenAsync(cancellationToken);
-                using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
                 {
-                    try
+                    await connection.OpenAsync(cancellationToken);
+                    using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
                     {
-                        // 插入交易账户
-                var query = @"
-                    INSERT INTO trading_accounts 
-                            (account_name, binance_account_id, api_key, api_secret, api_passphrase,
-                             equity, initial_equity, opportunity_count, status, is_active,
-                             create_time, update_time)
-                    VALUES 
-                            (@account_name, @binance_account_id, @api_key, @api_secret, @api_passphrase,
-                             @equity, @initial_equity, @opportunity_count, @status, @is_active,
-                             @create_time, @update_time);
-                            SELECT LAST_INSERT_ID();";
-
-                        long accountId;
-                using (var command = new MySqlCommand(query, connection))
-                {
-                            command.Transaction = transaction;
-                    command.Parameters.AddWithValue("@account_name", account.AccountName);
-                            command.Parameters.AddWithValue("@binance_account_id", (object)account.BinanceAccountId ?? DBNull.Value);
-                            command.Parameters.AddWithValue("@api_key", (object)account.ApiKey ?? DBNull.Value);
-                            command.Parameters.AddWithValue("@api_secret", (object)account.ApiSecret ?? DBNull.Value);
-                            command.Parameters.AddWithValue("@api_passphrase", (object)account.ApiPassphrase ?? DBNull.Value);
-                    command.Parameters.AddWithValue("@equity", account.Equity);
-                    command.Parameters.AddWithValue("@initial_equity", account.InitialEquity);
-                    command.Parameters.AddWithValue("@opportunity_count", account.OpportunityCount);
-                    command.Parameters.AddWithValue("@status", account.Status);
-                    command.Parameters.AddWithValue("@is_active", account.IsActive);
-                    command.Parameters.AddWithValue("@create_time", DateTime.Now);
-                    command.Parameters.AddWithValue("@update_time", DateTime.Now);
-
-                            accountId = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
-                        }
-
-                        // 添加用户账户关联
-                        if (accountId > 0 && AppSession.CurrentUserId > 0)
+                        try
                         {
-                            if (account.IsDefault == 1)
+                            // 插入交易账户
+                            var query = @"
+                                INSERT INTO trading_accounts 
+                                        (account_name, binance_account_id, api_key, api_secret, api_passphrase,
+                                         equity, initial_equity, opportunity_count, status, is_active,
+                                         create_time, update_time)
+                                VALUES 
+                                        (@account_name, @binance_account_id, @api_key, @api_secret, @api_passphrase,
+                                         @equity, @initial_equity, @opportunity_count, @status, @is_active,
+                                         @create_time, @update_time);
+                                        SELECT LAST_INSERT_ID();";
+
+                            long accountId;
+                            using (var command = new MySqlCommand(query, connection))
                             {
-                                // 先将该用户其它账户的is_default全部置为0
-                                using var clearCmd = connection.CreateCommand();
-                                clearCmd.Transaction = transaction;
-                                clearCmd.CommandText = "UPDATE user_trading_accounts SET is_default=0 WHERE user_id=@userId";
-                                clearCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
-                                await clearCmd.ExecuteNonQueryAsync(cancellationToken);
+                                command.Transaction = transaction;
+                                command.Parameters.AddWithValue("@account_name", account.AccountName);
+                                command.Parameters.AddWithValue("@binance_account_id", (object)account.BinanceAccountId ?? DBNull.Value);
+                                command.Parameters.AddWithValue("@api_key", (object)account.ApiKey ?? DBNull.Value);
+                                command.Parameters.AddWithValue("@api_secret", (object)account.ApiSecret ?? DBNull.Value);
+                                command.Parameters.AddWithValue("@api_passphrase", (object)account.ApiPassphrase ?? DBNull.Value);
+                                command.Parameters.AddWithValue("@equity", account.Equity);
+                                command.Parameters.AddWithValue("@initial_equity", account.InitialEquity);
+                                command.Parameters.AddWithValue("@opportunity_count", account.OpportunityCount);
+                                command.Parameters.AddWithValue("@status", account.Status);
+                                command.Parameters.AddWithValue("@is_active", account.IsActive);
+                                command.Parameters.AddWithValue("@create_time", DateTime.Now);
+                                command.Parameters.AddWithValue("@update_time", DateTime.Now);
+
+                                accountId = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
                             }
 
-                            // 插入新关联
-                            using var cmd = connection.CreateCommand();
-                            cmd.Transaction = transaction;
-                            cmd.CommandText = @"INSERT INTO user_trading_accounts (user_id, account_id, is_default, create_time, update_time) 
-                                              VALUES (@userId, @accountId, @isDefault, NOW(), NOW())";
-                            cmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
-                            cmd.Parameters.AddWithValue("@accountId", accountId);
-                            cmd.Parameters.AddWithValue("@isDefault", account.IsDefault);
-                            await cmd.ExecuteNonQueryAsync(cancellationToken);
-                }
+                            // 添加用户账户关联
+                            if (accountId > 0 && AppSession.CurrentUserId > 0)
+                            {
+                                if (account.IsDefault == 1)
+                                {
+                                    // 先将该用户其它账户的is_default全部置为0
+                                    using var clearCmd = connection.CreateCommand();
+                                    clearCmd.Transaction = transaction;
+                                    clearCmd.CommandText = "UPDATE user_trading_accounts SET is_default=0 WHERE user_id=@userId";
+                                    clearCmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                    await clearCmd.ExecuteNonQueryAsync(cancellationToken);
+                                }
 
-                        await transaction.CommitAsync(cancellationToken);
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        LogManager.LogException("Database", ex, "创建交易账户失败");
-                        await transaction.RollbackAsync(cancellationToken);
-                        throw;
+                                // 插入新关联
+                                using var cmd = connection.CreateCommand();
+                                cmd.Transaction = transaction;
+                                cmd.CommandText = @"INSERT INTO user_trading_accounts (user_id, account_id, is_default, create_time, update_time) 
+                                                  VALUES (@userId, @accountId, @isDefault, NOW(), NOW())";
+                                cmd.Parameters.AddWithValue("@userId", AppSession.CurrentUserId);
+                                cmd.Parameters.AddWithValue("@accountId", accountId);
+                                cmd.Parameters.AddWithValue("@isDefault", account.IsDefault);
+                                await cmd.ExecuteNonQueryAsync(cancellationToken);
+                            }
+
+                            await transaction.CommitAsync(cancellationToken);
+                            return true;
+                        }
+                        catch (Exception ex)
+                        {
+                            LogManager.LogException("Database", ex, $"创建账户 {account.AccountName} 时发生错误，事务已回滚");
+                            await transaction.RollbackAsync(cancellationToken);
+                            throw;
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"创建账户 {account.AccountName} 失败");
+                throw;
             }
         }
 
@@ -1689,17 +1698,17 @@ namespace TCClient.Services
 
                     command.Parameters.AddWithValue("@order_id", order.OrderId);
                     command.Parameters.AddWithValue("@account_id", order.AccountId);
-            command.Parameters.AddWithValue("@contract", order.Contract);
+                    command.Parameters.AddWithValue("@contract", order.Contract);
                     command.Parameters.AddWithValue("@contract_size", order.ContractSize);
-            command.Parameters.AddWithValue("@direction", order.Direction);
-            command.Parameters.AddWithValue("@quantity", order.Quantity);
+                    command.Parameters.AddWithValue("@direction", order.Direction);
+                    command.Parameters.AddWithValue("@quantity", order.Quantity);
                     command.Parameters.AddWithValue("@entry_price", order.EntryPrice);
                     command.Parameters.AddWithValue("@initial_stop_loss", order.InitialStopLoss);
                     command.Parameters.AddWithValue("@current_stop_loss", order.CurrentStopLoss);
-            command.Parameters.AddWithValue("@leverage", order.Leverage);
-            command.Parameters.AddWithValue("@margin", order.Margin);
+                    command.Parameters.AddWithValue("@leverage", order.Leverage);
+                    command.Parameters.AddWithValue("@margin", order.Margin);
                     command.Parameters.AddWithValue("@total_value", order.TotalValue);
-            command.Parameters.AddWithValue("@status", order.Status);
+                    command.Parameters.AddWithValue("@status", order.Status);
                     command.Parameters.AddWithValue("@open_time", order.OpenTime);
                     command.Parameters.AddWithValue("@real_profit", realPnL);
                     command.Parameters.AddWithValue("@current_price", order.EntryPrice);
@@ -1707,7 +1716,40 @@ namespace TCClient.Services
                     orderId = Convert.ToInt64(await command.ExecuteScalarAsync());
                 }
 
-                // 3. 检查是否已存在推仓信息
+                // 3. 创建止损委托单（如果设置了止损价格）
+                if (order.InitialStopLoss > 0)
+                {
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = @"
+                            INSERT INTO stop_take_orders 
+                            (account_id, simulation_order_id, symbol, order_type, direction, quantity, trigger_price, 
+                             working_type, status, create_time, update_time)
+                            VALUES 
+                            (@account_id, @simulation_order_id, @symbol, @order_type, @direction, @quantity, @trigger_price, 
+                             @working_type, @status, NOW(), NOW())";
+                        
+                        // 确定止损单的方向：与开仓方向相反
+                        string stopLossDirection = order.Direction.ToLower() == "buy" ? "SELL" : "BUY";
+                        
+                        command.Parameters.AddWithValue("@account_id", order.AccountId);
+                        command.Parameters.AddWithValue("@simulation_order_id", orderId);
+                        command.Parameters.AddWithValue("@symbol", order.Contract);
+                        command.Parameters.AddWithValue("@order_type", "STOP_LOSS");
+                        command.Parameters.AddWithValue("@direction", stopLossDirection);
+                        command.Parameters.AddWithValue("@quantity", (decimal)order.Quantity);
+                        command.Parameters.AddWithValue("@trigger_price", order.InitialStopLoss);
+                        command.Parameters.AddWithValue("@working_type", "MARK_PRICE");
+                        command.Parameters.AddWithValue("@status", "WAITING");
+                        
+                        await command.ExecuteNonQueryAsync();
+                        
+                        LogManager.Log("Database", $"创建止损委托单成功 - 订单ID: {orderId}, 合约: {order.Contract}, 方向: {stopLossDirection}, 触发价: {order.InitialStopLoss}");
+                    }
+                }
+
+                // 4. 检查是否已存在推仓信息
                 long pushId;
                 using (var command = connection.CreateCommand())
                 {
@@ -1729,7 +1771,7 @@ namespace TCClient.Services
                     }
                     else
                     {
-                        // 4. 创建新的推仓信息
+                        // 5. 创建新的推仓信息
                         command.CommandText = @"
                             INSERT INTO position_push_info 
                             (account_id, contract, status, create_time) 
@@ -1741,7 +1783,7 @@ namespace TCClient.Services
                     }
                 }
 
-                // 5. 创建推仓与订单关联
+                // 6. 创建推仓与订单关联
                 using (var command = connection.CreateCommand())
                 {
                     command.Transaction = transaction;
@@ -1758,6 +1800,7 @@ namespace TCClient.Services
                 }
 
                 await transaction.CommitAsync();
+                LogManager.Log("Database", $"订单创建完成 - 订单ID: {orderId}, 推仓ID: {pushId}");
                 return orderId;
             }
             catch (Exception ex)
@@ -2691,7 +2734,7 @@ namespace TCClient.Services
 
                         using (var reader = await command.ExecuteReaderAsync(cancellationToken))
                         {
-                            while (await reader.ReadAsync())
+                            while (await reader.ReadAsync(cancellationToken))
                             {
                                 var order = new ConditionalOrder
                                 {
@@ -3352,18 +3395,21 @@ namespace TCClient.Services
                     {
                         command.CommandText = @"
                             INSERT INTO stop_take_orders 
-                            (account_id, symbol, direction, quantity, trigger_price, 
-                             status, create_time, update_time)
+                            (account_id, simulation_order_id, symbol, order_type, direction, quantity, trigger_price, 
+                             working_type, status, create_time, update_time)
                             VALUES 
-                            (@accountId, @symbol, @direction, @quantity, @triggerPrice, 
-                             @status, NOW(), NOW());
+                            (@accountId, @simulationOrderId, @symbol, @orderType, @direction, @quantity, @triggerPrice, 
+                             @workingType, @status, NOW(), NOW());
                             SELECT LAST_INSERT_ID();";
                         
                         command.Parameters.AddWithValue("@accountId", order.AccountId);
+                        command.Parameters.AddWithValue("@simulationOrderId", order.SimulationOrderId);
                         command.Parameters.AddWithValue("@symbol", order.Symbol);
+                        command.Parameters.AddWithValue("@orderType", order.OrderType);
                         command.Parameters.AddWithValue("@direction", order.Direction);
                         command.Parameters.AddWithValue("@quantity", order.Quantity);
                         command.Parameters.AddWithValue("@triggerPrice", order.TriggerPrice);
+                        command.Parameters.AddWithValue("@workingType", order.WorkingType);
                         command.Parameters.AddWithValue("@status", order.Status);
                         
                         var result = await command.ExecuteScalarAsync(cancellationToken);
@@ -3397,8 +3443,8 @@ namespace TCClient.Services
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = @"
-                            SELECT id, account_id, symbol, direction, quantity, trigger_price, 
-                                   status, binance_order_id, execution_price, error_message, 
+                            SELECT id, account_id, simulation_order_id, symbol, order_type, direction, quantity, trigger_price, 
+                                   working_type, status, binance_order_id, execution_price, error_message, 
                                    create_time, update_time
                             FROM stop_take_orders 
                             WHERE account_id = @accountId
@@ -3414,10 +3460,13 @@ namespace TCClient.Services
                                 {
                                     Id = reader.GetInt64("id"),
                                     AccountId = reader.GetInt64("account_id"),
+                                    SimulationOrderId = reader.GetInt64("simulation_order_id"),
                                     Symbol = reader.GetString("symbol"),
+                                    OrderType = reader.GetString("order_type"),
                                     Direction = reader.GetString("direction"),
                                     Quantity = reader.GetDecimal("quantity"),
                                     TriggerPrice = reader.GetDecimal("trigger_price"),
+                                    WorkingType = reader.GetString("working_type"),
                                     Status = reader.GetString("status"),
                                     BinanceOrderId = reader.IsDBNull("binance_order_id") ? null : reader.GetString("binance_order_id"),
                                     ExecutionPrice = reader.IsDBNull("execution_price") ? null : reader.GetDecimal("execution_price"),
@@ -3459,8 +3508,8 @@ namespace TCClient.Services
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = @"
-                            SELECT id, account_id, symbol, direction, quantity, trigger_price, 
-                                   status, binance_order_id, execution_price, error_message, 
+                            SELECT id, account_id, simulation_order_id, symbol, order_type, direction, quantity, trigger_price, 
+                                   working_type, status, binance_order_id, execution_price, error_message, 
                                    create_time, update_time
                             FROM stop_take_orders 
                             WHERE status = 'WAITING'
@@ -3474,10 +3523,13 @@ namespace TCClient.Services
                                 {
                                     Id = reader.GetInt64("id"),
                                     AccountId = reader.GetInt64("account_id"),
+                                    SimulationOrderId = reader.GetInt64("simulation_order_id"),
                                     Symbol = reader.GetString("symbol"),
+                                    OrderType = reader.GetString("order_type"),
                                     Direction = reader.GetString("direction"),
                                     Quantity = reader.GetDecimal("quantity"),
                                     TriggerPrice = reader.GetDecimal("trigger_price"),
+                                    WorkingType = reader.GetString("working_type"),
                                     Status = reader.GetString("status"),
                                     BinanceOrderId = reader.IsDBNull("binance_order_id") ? null : reader.GetString("binance_order_id"),
                                     ExecutionPrice = reader.IsDBNull("execution_price") ? null : reader.GetDecimal("execution_price"),
@@ -3752,6 +3804,113 @@ namespace TCClient.Services
             }
             
             return klineData;
+        }
+
+        /// <summary>
+        /// 获取所有状态为open的推仓信息
+        /// </summary>
+        public async Task<List<PushSummaryInfo>> GetAllPushSummaryInfosAsync()
+        {
+            var result = new List<PushSummaryInfo>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    
+                    // 查询所有状态为open的推仓信息
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT DISTINCT pp.id as push_id, pp.contract, pp.status, 
+                                   pp.create_time, pp.close_time, pp.single_risk_amount, pp.available_risk_amount
+                            FROM position_pushes pp
+                            WHERE pp.status = 'open'
+                            ORDER BY pp.create_time DESC";
+                        
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                var pushInfo = new PushSummaryInfo
+                                {
+                                    PushId = reader.GetInt64("push_id"),
+                                    Contract = reader.GetString("contract"),
+                                    Status = reader.GetString("status"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    CloseTime = reader.IsDBNull("close_time") ? null : reader.GetDateTime("close_time"),
+                                    SingleRiskAmount = reader.GetDecimal("single_risk_amount"),
+                                    AvailableRiskAmount = reader.GetDecimal("available_risk_amount"),
+                                    Orders = new List<SimulationOrder>()
+                                };
+                                
+                                result.Add(pushInfo);
+                            }
+                        }
+                    }
+                    
+                    // 为每个推仓信息获取关联的订单
+                    foreach (var pushInfo in result)
+                    {
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = @"
+                                SELECT so.id, so.account_id, so.order_id, so.contract, so.direction, so.quantity,
+                                       so.entry_price, so.current_price, so.initial_stop_loss, so.current_stop_loss,
+                                       so.status, so.open_time, so.close_time, so.close_price,
+                                       so.real_profit, so.floating_pnl, so.contract_size,
+                                       so.highest_price, so.last_update_time
+                                FROM simulation_orders so
+                                INNER JOIN push_order_relations por ON so.id = por.order_id
+                                WHERE por.push_id = @pushId
+                                ORDER BY so.open_time DESC";
+                            
+                            command.Parameters.AddWithValue("@pushId", pushInfo.PushId);
+                            
+                            using (var reader = await command.ExecuteReaderAsync())
+                            {
+                                while (await reader.ReadAsync())
+                                {
+                                    var order = new SimulationOrder
+                                    {
+                                        Id = reader.GetInt64("id"),
+                                        AccountId = reader.GetInt64("account_id"),
+                                        OrderId = reader.GetString("order_id"),
+                                        Contract = reader.GetString("contract"),
+                                        Direction = reader.GetString("direction"),
+                                        Quantity = (float)reader.GetDouble("quantity"),
+                                        EntryPrice = reader.GetDecimal("entry_price"),
+                                        CurrentPrice = reader.IsDBNull("current_price") ? null : reader.GetDecimal("current_price"),
+                                        InitialStopLoss = reader.GetDecimal("initial_stop_loss"),
+                                        CurrentStopLoss = reader.GetDecimal("current_stop_loss"),
+                                        Status = reader.GetString("status"),
+                                        OpenTime = reader.GetDateTime("open_time"),
+                                        CloseTime = reader.IsDBNull("close_time") ? null : reader.GetDateTime("close_time"),
+                                        ClosePrice = reader.IsDBNull("close_price") ? null : reader.GetDecimal("close_price"),
+                                        RealProfit = reader.IsDBNull("real_profit") ? null : reader.GetDecimal("real_profit"),
+                                        FloatingPnL = reader.IsDBNull("floating_pnl") ? null : reader.GetDecimal("floating_pnl"),
+                                        ContractSize = reader.GetDecimal("contract_size"),
+                                        HighestPrice = reader.IsDBNull("highest_price") ? null : reader.GetDecimal("highest_price"),
+                                        LastUpdateTime = reader.IsDBNull("last_update_time") ? null : reader.GetDateTime("last_update_time")
+                                    };
+                                    
+                                    pushInfo.Orders.Add(order);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取所有推仓信息成功，共 {result.Count} 个推仓");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取所有推仓信息失败");
+                throw;
+            }
         }
     }
 }
