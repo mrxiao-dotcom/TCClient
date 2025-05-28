@@ -1135,10 +1135,10 @@ namespace TCClient.Services
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = @"
-                            SELECT t.*, COALESCE(uta.is_default, 0) as is_default
+                            SELECT t.*, uta.is_default
                             FROM trading_accounts t
-                            LEFT JOIN user_trading_accounts uta ON t.id = uta.account_id AND uta.user_id = @user_id
-                            WHERE t.is_active = 1
+                            INNER JOIN user_trading_accounts uta ON t.id = uta.account_id
+                            WHERE uta.user_id = @user_id AND t.is_active = 1
                             ORDER BY t.create_time DESC";
 
                         command.Parameters.AddWithValue("@user_id", AppSession.CurrentUserId);
@@ -1189,10 +1189,10 @@ namespace TCClient.Services
                     using (var command = connection.CreateCommand())
                     {
                         command.CommandText = @"
-                            SELECT t.*, COALESCE(uta.is_default, 0) as is_default
+                            SELECT t.*, uta.is_default
                             FROM trading_accounts t
-                            LEFT JOIN user_trading_accounts uta ON t.id = uta.account_id AND uta.user_id = @user_id
-                            WHERE t.id = @account_id AND t.is_active = 1
+                            INNER JOIN user_trading_accounts uta ON t.id = uta.account_id
+                            WHERE uta.user_id = @user_id AND t.id = @account_id AND t.is_active = 1
                             LIMIT 1";
 
                         command.Parameters.AddWithValue("@user_id", AppSession.CurrentUserId);

@@ -27,24 +27,24 @@ namespace TCClient.Services
         private bool _isDisposed;
         private const int MaxRetries = 3;
         private const int RetryDelayMs = 1000;
-        private const int RequestTimeoutMs = 10000;
+        private const int RequestTimeoutMs = 15000; // 增加到15秒
         private CancellationTokenSource _globalCts;
         private readonly ILogger<BinanceExchangeService> _logger;
         private readonly SemaphoreSlim _requestSemaphore = new SemaphoreSlim(1, 1);
         private readonly Random _random = new Random();
-        private const int BASE_TIMEOUT = 5; // 基础超时时间（秒）
-        private const int MAX_TIMEOUT = 15; // 最大超时时间（秒）
+        private const int BASE_TIMEOUT = 15; // 增加基础超时时间到15秒
+        private const int MAX_TIMEOUT = 30; // 增加最大超时时间到30秒
         
         // 请求频率控制
         private static readonly Dictionary<string, DateTime> _lastRequestTimes = new Dictionary<string, DateTime>();
         private static readonly object _rateLimitLock = new object();
         private const int MIN_REQUEST_INTERVAL_MS = 250; // 最小请求间隔250毫秒（每分钟最多240次请求）
-        private const int TICKER_REQUEST_INTERVAL_MS = 2000; // 行情数据请求间隔2秒
+        private const int TICKER_REQUEST_INTERVAL_MS = 1000; // 减少行情数据请求间隔到1秒
         
         // 缓存机制
         private static List<TickerInfo> _cachedTickers = null;
         private static DateTime _lastTickerCacheTime = DateTime.MinValue;
-        private const int TICKER_CACHE_DURATION_MS = 5000; // 行情数据缓存5秒
+        private const int TICKER_CACHE_DURATION_MS = 10000; // 增加行情数据缓存到10秒
 
         public BinanceExchangeService(ILogger<BinanceExchangeService> logger, string apiKey = null, string apiSecret = null)
         {
@@ -133,6 +133,10 @@ namespace TCClient.Services
             // 应用请求频率控制
             await RateLimitAsync(endpoint);
 
+            // 为每个请求创建独立的CancellationToken，避免全局取消影响其他请求
+            using var requestCts = new CancellationTokenSource(TimeSpan.FromSeconds(BASE_TIMEOUT + retryCount * 5));
+            var requestToken = requestCts.Token;
+
             try
             {
                 var url = $"{_baseUrl}{endpoint}";
@@ -143,7 +147,7 @@ namespace TCClient.Services
                     if (requireSignature)
                     {
                         parameters["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-                        parameters["recvWindow"] = "5000";
+                        parameters["recvWindow"] = "10000"; // 增加接收窗口时间
                     }
                     queryString = string.Join("&", parameters.Select(p => $"{p.Key}={p.Value}"));
                 }
@@ -160,16 +164,17 @@ namespace TCClient.Services
                 }
 
                 var request = new HttpRequestMessage(method, url);
-                Utils.LogManager.Log("BinanceExchange", $"发送请求: {method} {endpoint}");
-                if (!string.IsNullOrEmpty(queryString))
+                Utils.LogManager.Log("BinanceExchange", $"发送请求: {method} {endpoint} (重试: {retryCount}/{MaxRetries})");
+                if (!string.IsNullOrEmpty(queryString) && !requireSignature)
                 {
                     Utils.LogManager.Log("BinanceExchange", $"请求参数: {queryString}");
                 }
 
                 try
                 {
-                    using var response = await _httpClient.SendAsync(request, _globalCts.Token);
-                    var content = await response.Content.ReadAsStringAsync();
+                    // 使用独立的CancellationToken，而不是全局的
+                    using var response = await _httpClient.SendAsync(request, requestToken);
+                    var content = await response.Content.ReadAsStringAsync(requestToken);
                     
                     // 记录原始响应内容
                     Utils.LogManager.Log("BinanceExchange", $"API响应状态码: {response.StatusCode}");
@@ -251,7 +256,7 @@ namespace TCClient.Services
                             {
                                 var delayMs = (retryCount + 1) * 5000; // 5秒、10秒、15秒的递增延迟
                                 Utils.LogManager.Log("BinanceExchange", $"遇到频率限制，等待 {delayMs}ms 后重试 ({retryCount + 1}/{MaxRetries})");
-                                await Task.Delay(delayMs);
+                                await Task.Delay(delayMs, CancellationToken.None); // 使用None避免取消
                                 return await SendRequestAsync<T>(endpoint, method, parameters, requireSignature, retryCount + 1);
                             }
                             else
@@ -264,7 +269,7 @@ namespace TCClient.Services
                         throw new HttpRequestException($"请求失败: {response.StatusCode} - {content}");
                     }
                 }
-                catch (TaskCanceledException ex) when (retryCount < MaxRetries)
+                catch (TaskCanceledException ex) when (ex.CancellationToken == requestToken && retryCount < MaxRetries)
                 {
                     if (_isDisposed) 
                     {
@@ -273,20 +278,27 @@ namespace TCClient.Services
                     }
                     
                     Utils.LogManager.Log("BinanceExchange", $"请求超时 (重试 {retryCount + 1}/{MaxRetries}): {ex.Message}");
-                    await Task.Delay(RetryDelayMs * (retryCount + 1));
+                    var delayMs = RetryDelayMs * (retryCount + 1);
+                    await Task.Delay(delayMs, CancellationToken.None); // 使用None避免取消
                     return await SendRequestAsync<T>(endpoint, method, parameters, requireSignature, retryCount + 1);
+                }
+                catch (TaskCanceledException ex) when (ex.CancellationToken == requestToken)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"请求最终超时，已达到最大重试次数: {ex.Message}");
+                    throw new TimeoutException($"请求超时: {endpoint}");
                 }
             }
             catch (HttpRequestException ex) when (retryCount < MaxRetries)
             {
                 Utils.LogManager.Log("BinanceExchange", $"网络请求失败 (重试 {retryCount + 1}/{MaxRetries}): {ex.Message}");
-                await Task.Delay(RetryDelayMs * (retryCount + 1));
+                var delayMs = RetryDelayMs * (retryCount + 1);
+                await Task.Delay(delayMs, CancellationToken.None); // 使用None避免取消
                 return await SendRequestAsync<T>(endpoint, method, parameters, requireSignature, retryCount + 1);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (_isDisposed)
             {
-                Utils.LogManager.Log("BinanceExchange", "请求被取消 - 操作取消异常");
-                throw;
+                Utils.LogManager.Log("BinanceExchange", "请求被取消 - 服务已释放");
+                throw new OperationCanceledException("交易所服务已释放");
             }
             catch (Exception ex)
             {
@@ -494,7 +506,40 @@ namespace TCClient.Services
                 var allTickers = await GetAllTickersAsync();
                 if (allTickers == null || !allTickers.Any())
                 {
-                    Utils.LogManager.Log("BinanceExchange", $"获取所有合约行情数据失败");
+                    Utils.LogManager.Log("BinanceExchange", $"获取所有合约行情数据失败或为空");
+                    
+                    // 尝试直接获取单个合约的价格
+                    try
+                    {
+                        Utils.LogManager.Log("BinanceExchange", $"尝试直接获取 {formattedSymbol} 的价格");
+                        var priceEndpoint = "/fapi/v1/ticker/price";
+                        var priceParams = new Dictionary<string, string> { { "symbol", formattedSymbol } };
+                        var priceResponse = await SendRequestAsync<BinancePriceResponse>(priceEndpoint, HttpMethod.Get, priceParams);
+                        
+                        if (priceResponse != null && !string.IsNullOrEmpty(priceResponse.Price))
+                        {
+                            if (decimal.TryParse(priceResponse.Price, out var price) && price > 0)
+                            {
+                                Utils.LogManager.Log("BinanceExchange", $"成功获取 {formattedSymbol} 的价格: {price}");
+                                return new TickerInfo
+                                {
+                                    Symbol = formattedSymbol,
+                                    LastPrice = price,
+                                    BidPrice = price * 0.999m,
+                                    AskPrice = price * 1.001m,
+                                    Volume = 0,
+                                    QuoteVolume = 0,
+                                    Timestamp = DateTime.Now,
+                                    PriceChangePercent = 0
+                                };
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Utils.LogManager.Log("BinanceExchange", $"直接获取价格失败: {ex.Message}");
+                    }
+                    
                     return null;
                 }
 
@@ -505,6 +550,17 @@ namespace TCClient.Services
                 if (ticker == null)
                 {
                     Utils.LogManager.Log("BinanceExchange", $"未找到合约 {formattedSymbol} 的行情数据");
+                    
+                    // 尝试模糊匹配
+                    var similarTicker = allTickers.FirstOrDefault(t => 
+                        t.Symbol.Contains(symbol.ToUpper(), StringComparison.OrdinalIgnoreCase));
+                    
+                    if (similarTicker != null)
+                    {
+                        Utils.LogManager.Log("BinanceExchange", $"找到相似合约: {similarTicker.Symbol}");
+                        return similarTicker;
+                    }
+                    
                     return null;
                 }
 
@@ -514,6 +570,7 @@ namespace TCClient.Services
             catch (Exception ex)
             {
                 Utils.LogManager.Log("BinanceExchange", $"获取 {symbol} 的行情数据失败: {ex.Message}");
+                Utils.LogManager.Log("BinanceExchange", $"异常类型: {ex.GetType().Name}");
                 return null;
             }
         }
@@ -530,69 +587,141 @@ namespace TCClient.Services
                     return _cachedTickers;
                 }
 
+                Utils.LogManager.Log("BinanceExchange", "开始获取所有合约行情数据...");
                 string endpoint = "/fapi/v1/ticker/24hr";
-                var response = await SendRequestAsync<List<BinanceTickerResponse>>(endpoint, HttpMethod.Get);
+                
+                List<BinanceTickerResponse> response = null;
+                try
+                {
+                    response = await SendRequestAsync<List<BinanceTickerResponse>>(endpoint, HttpMethod.Get);
+                }
+                catch (TimeoutException ex)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"获取行情数据超时: {ex.Message}");
+                    // 如果有缓存数据，返回缓存数据
+                    if (_cachedTickers != null && _cachedTickers.Count > 0)
+                    {
+                        Utils.LogManager.Log("BinanceExchange", $"使用过期缓存数据，共 {_cachedTickers.Count} 个合约");
+                        return _cachedTickers;
+                    }
+                    // 否则返回空列表
+                    return new List<TickerInfo>();
+                }
+                catch (Exception ex)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"获取行情数据异常: {ex.Message}");
+                    // 如果有缓存数据，返回缓存数据
+                    if (_cachedTickers != null && _cachedTickers.Count > 0)
+                    {
+                        Utils.LogManager.Log("BinanceExchange", $"使用过期缓存数据，共 {_cachedTickers.Count} 个合约");
+                        return _cachedTickers;
+                    }
+                    // 否则返回空列表
+                    return new List<TickerInfo>();
+                }
                 
                 if (response == null || !response.Any())
                 {
                     Utils.LogManager.Log("BinanceExchange", "获取所有合约行情数据失败：响应为空");
+                    // 如果有缓存数据，返回缓存数据
+                    if (_cachedTickers != null && _cachedTickers.Count > 0)
+                    {
+                        Utils.LogManager.Log("BinanceExchange", $"使用过期缓存数据，共 {_cachedTickers.Count} 个合约");
+                        return _cachedTickers;
+                    }
                     return new List<TickerInfo>();
                 }
 
                 var tickers = new List<TickerInfo>();
+                var successCount = 0;
+                var errorCount = 0;
+                
                 foreach (var item in response)
                 {
                     try
                     {
+                        // 检查必要字段是否存在
+                        if (string.IsNullOrEmpty(item.Symbol) || string.IsNullOrEmpty(item.LastPrice))
+                        {
+                            errorCount++;
+                            continue;
+                        }
+
                         // 使用TryParse替代Parse，并提供默认值
                         decimal lastPrice = 0m, bidPrice = 0m, askPrice = 0m, volume = 0m, quoteVolume = 0m, priceChangePercent = 0m;
                         
                         // 安全地解析每个字段
-                        decimal.TryParse(item.LastPrice ?? "0", out lastPrice);
+                        if (!decimal.TryParse(item.LastPrice ?? "0", out lastPrice) || lastPrice <= 0)
+                        {
+                            errorCount++;
+                            continue;
+                        }
+                        
                         decimal.TryParse(item.BidPrice ?? "0", out bidPrice);
                         decimal.TryParse(item.AskPrice ?? "0", out askPrice);
                         decimal.TryParse(item.Volume ?? "0", out volume);
                         decimal.TryParse(item.QuoteVolume ?? "0", out quoteVolume);
                         decimal.TryParse(item.PriceChangePercent ?? "0", out priceChangePercent);
 
-                        // 只有当价格有效时才添加ticker
-                        if (lastPrice > 0)
+                        // 创建TickerInfo对象
+                        var ticker = new TickerInfo
                         {
-                            tickers.Add(new TickerInfo
-                            {
-                                Symbol = item.Symbol,
-                                LastPrice = lastPrice,
-                                BidPrice = bidPrice,
-                                AskPrice = askPrice,
-                                Volume = volume,
-                                QuoteVolume = quoteVolume,
-                                Timestamp = DateTime.Now,
-                                PriceChangePercent = priceChangePercent
-                            });
-                        }
-                        else
-                        {
-                            Utils.LogManager.Log("BinanceExchange", $"跳过无效价格的合约 {item.Symbol}: LastPrice={item.LastPrice}");
-                        }
+                            Symbol = item.Symbol,
+                            LastPrice = lastPrice,
+                            BidPrice = bidPrice > 0 ? bidPrice : lastPrice * 0.999m,
+                            AskPrice = askPrice > 0 ? askPrice : lastPrice * 1.001m,
+                            Volume = volume,
+                            QuoteVolume = quoteVolume,
+                            Timestamp = DateTime.Now,
+                            PriceChangePercent = priceChangePercent
+                        };
+                        
+                        tickers.Add(ticker);
+                        successCount++;
                     }
                     catch (Exception ex)
                     {
-                        Utils.LogManager.Log("BinanceExchange", $"解析合约 {item.Symbol} 行情数据失败: {ex.Message}");
+                        Utils.LogManager.Log("BinanceExchange", $"解析合约 {item?.Symbol ?? "未知"} 行情数据失败: {ex.Message}");
+                        errorCount++;
                         continue;
                     }
                 }
 
-                Utils.LogManager.Log("BinanceExchange", $"成功获取 {tickers.Count} 个合约的行情数据");
+                Utils.LogManager.Log("BinanceExchange", $"行情数据处理完成 - 成功: {successCount}, 失败: {errorCount}, 总计: {response.Count}");
                 
-                // 更新缓存
-                _cachedTickers = tickers;
-                _lastTickerCacheTime = DateTime.Now;
+                // 只有当成功获取到数据时才更新缓存
+                if (tickers.Count > 0)
+                {
+                    _cachedTickers = tickers;
+                    _lastTickerCacheTime = DateTime.Now;
+                    Utils.LogManager.Log("BinanceExchange", $"成功获取并缓存 {tickers.Count} 个合约的行情数据");
+                }
+                else
+                {
+                    Utils.LogManager.Log("BinanceExchange", "未获取到有效的行情数据");
+                    // 如果有缓存数据，返回缓存数据
+                    if (_cachedTickers != null && _cachedTickers.Count > 0)
+                    {
+                        Utils.LogManager.Log("BinanceExchange", $"使用过期缓存数据，共 {_cachedTickers.Count} 个合约");
+                        return _cachedTickers;
+                    }
+                }
                 
                 return tickers;
             }
             catch (Exception ex)
             {
                 Utils.LogManager.Log("BinanceExchange", $"获取所有合约行情数据失败: {ex.Message}");
+                Utils.LogManager.Log("BinanceExchange", $"异常类型: {ex.GetType().Name}");
+                
+                // 如果有缓存数据，返回缓存数据
+                if (_cachedTickers != null && _cachedTickers.Count > 0)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"使用过期缓存数据，共 {_cachedTickers.Count} 个合约");
+                    return _cachedTickers;
+                }
+                
+                // 最后的保底措施：返回空列表而不是null
                 return new List<TickerInfo>();
             }
         }

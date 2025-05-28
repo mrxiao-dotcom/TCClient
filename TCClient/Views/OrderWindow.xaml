@@ -244,6 +244,16 @@
                                     FontSize="11"
                                     Click="CalculateQuantityByStopLoss_Click"
                                     ToolTip="根据止损金额自动计算合适的下单数量"/>
+                            
+                            <!-- 可用风险金按钮 -->
+                            <Button Content="可用风险金" 
+                                    Width="80" 
+                                    Height="24"
+                                    FontSize="11"
+                                    Margin="8,0,0,0"
+                                    Click="UseAvailableRiskAmount_Click"
+                                    ToolTip="将该合约的可用风险金额填入金额输入框"/>
+                            
                             <TextBlock Text="(自动计算数量)" 
                                       VerticalAlignment="Center" 
                                       Margin="5,0,0,0" 

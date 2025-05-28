@@ -248,7 +248,14 @@ namespace TCClient.ViewModels
             _messageService = messageService;
             _databaseService = databaseService;
 
-            Account = new TradingAccount();
+            Account = new TradingAccount
+            {
+                Status = 1,        // 设置状态为活跃
+                IsActive = 1,      // 设置为激活状态
+                Equity = 10000,    // 设置默认权益
+                InitialEquity = 10000,  // 设置默认初始权益
+                OpportunityCount = 10   // 设置默认机会数量
+            };
             _initialEquity = 10000;
             _opportunityCount = 10;
             _isDefault = false;
@@ -307,6 +314,21 @@ namespace TCClient.ViewModels
                 {
                     Account.ApiSecret = ApiSecret;
                     Account.ApiPassphrase = ApiPassphrase;
+                    
+                    // 确保设置正确的值
+                    Account.InitialEquity = InitialEquity;
+                    Account.Equity = InitialEquity; // 新账户的当前权益等于初始权益
+                    Account.OpportunityCount = OpportunityCount;
+                    Account.BinanceAccountId = BinanceAccountId;
+                    
+                    // 如果不是编辑模式，确保设置状态字段
+                    if (!IsEditMode)
+                    {
+                        Account.Status = 1;        // 设置状态为活跃
+                        Account.IsActive = 1;      // 设置为激活状态
+                        Account.IsDefault = IsDefault ? 1 : 0;  // 设置默认账户标志
+                        Account.IsDefaultAccount = IsDefault;
+                    }
                 }
 
                 if (IsEditMode)

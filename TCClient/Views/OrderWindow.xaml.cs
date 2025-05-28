@@ -95,8 +95,8 @@ namespace TCClient.Views
                 //LogToFile("开始加载账户信息");
                 _ = LoadAccountInfoAsync();
 
-                // 初始化止损金额输入框
-                StopLossAmountTextBox.Text = _defaultStopLossAmount.ToString("F2");
+                // 注释掉默认值设置，让LoadAccountInfoAsync来处理
+                // StopLossAmountTextBox.Text = _defaultStopLossAmount.ToString("F2");
             }
             catch (Exception ex)
             {
@@ -121,8 +121,17 @@ namespace TCClient.Views
                         // 计算单笔风险金额（总权益除以机会次数）
                         if (account.OpportunityCount > 0)
                         {
-                        _defaultStopLossAmount = account.Equity / account.OpportunityCount;
-                        StopLossAmountTextBox.Text = _defaultStopLossAmount.ToString("F2");
+                            _defaultStopLossAmount = account.Equity / account.OpportunityCount;
+                            
+                            // 首次打开时，默认填写单笔风险金到金额输入框
+                            // 只有在金额输入框为空或为默认值时才填写
+                            if (string.IsNullOrEmpty(StopLossAmountTextBox.Text) || 
+                                StopLossAmountTextBox.Text == "100.00" || 
+                                StopLossAmountTextBox.Text == "0.00")
+                            {
+                                StopLossAmountTextBox.Text = _defaultStopLossAmount.ToString("F2");
+                                Utils.LogManager.Log("OrderWindow", $"首次打开，默认填写单笔风险金：{_defaultStopLossAmount:N2}");
+                            }
                             
                             // 记录日志而不是显示弹窗
                             Utils.LogManager.Log("OrderWindow", $"已加载账户信息，权益：{account.Equity:N2}，单笔风险金额：{_defaultStopLossAmount:N2}");
@@ -132,7 +141,13 @@ namespace TCClient.Views
                             // 记录日志而不是显示弹窗
                             Utils.LogManager.Log("OrderWindow", "账户机会次数设置为0，使用默认风险金额");
                             _defaultStopLossAmount = 100; // 使用默认值
-                            StopLossAmountTextBox.Text = _defaultStopLossAmount.ToString("F2");
+                            
+                            // 首次打开时，填写默认值
+                            if (string.IsNullOrEmpty(StopLossAmountTextBox.Text) || 
+                                StopLossAmountTextBox.Text == "0.00")
+                            {
+                                StopLossAmountTextBox.Text = _defaultStopLossAmount.ToString("F2");
+                            }
                         }
                     });
                 }
@@ -924,6 +939,79 @@ namespace TCClient.Views
             {
                 Utils.LogManager.Log("OrderWindow", $"以损定量计算失败：{ex.Message}");
                 MessageBox.Show($"以损定量计算失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// 可用风险金按钮点击事件
+        /// </summary>
+        private async void UseAvailableRiskAmount_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(ContractTextBox.Text))
+                {
+                    MessageBox.Show("请先输入合约代码", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var accountId = Utils.AppSession.CurrentAccountId;
+                if (accountId <= 0)
+                {
+                    MessageBox.Show("无效的账户ID", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // 获取该合约的可用风险金
+                decimal availableRiskAmount = 0m;
+                
+                // 首先尝试从ViewModel的推仓信息中获取
+                if (_viewModel.PushSummary != null)
+                {
+                    availableRiskAmount = _viewModel.AvailableRiskAmount;
+                    Utils.LogManager.Log("OrderWindow", $"从推仓信息获取可用风险金: {availableRiskAmount:F2}");
+                }
+                else
+                {
+                    // 如果没有推仓信息，使用单笔风险金
+                    availableRiskAmount = _viewModel.SingleRiskAmount;
+                    Utils.LogManager.Log("OrderWindow", $"使用单笔风险金: {availableRiskAmount:F2}");
+                }
+
+                if (availableRiskAmount <= 0)
+                {
+                    // 如果ViewModel中没有数据，直接从数据库获取
+                    availableRiskAmount = await _databaseService.GetContractAvailableRiskAmountAsync(accountId, ContractTextBox.Text);
+                    Utils.LogManager.Log("OrderWindow", $"从数据库获取可用风险金: {availableRiskAmount:F2}");
+                }
+
+                if (availableRiskAmount <= 0)
+                {
+                    MessageBox.Show("无法获取可用风险金，请检查账户设置", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // 将可用风险金填入金额输入框
+                StopLossAmountTextBox.Text = availableRiskAmount.ToString("F2");
+                
+                // 同步更新ViewModel
+                _viewModel.StopLossAmount = availableRiskAmount;
+                
+                // 如果已设置止损价格，重新计算止损参数
+                if (decimal.TryParse(StopLossPriceTextBox.Text, out decimal stopLossPrice) && stopLossPrice > 0)
+                {
+                    UpdateStopLossValues(newAmount: availableRiskAmount);
+                }
+
+                Utils.LogManager.Log("OrderWindow", $"已将可用风险金 {availableRiskAmount:F2} 填入金额输入框");
+                
+                // 显示提示信息
+                MessageBox.Show($"已将可用风险金 {availableRiskAmount:F2} 填入金额输入框", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.LogException("OrderWindow", ex, "使用可用风险金失败");
+                MessageBox.Show($"使用可用风险金失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
