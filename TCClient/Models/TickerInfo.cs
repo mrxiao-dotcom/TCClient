@@ -9,6 +9,7 @@ namespace TCClient.Models
         public decimal BidPrice { get; set; }
         public decimal AskPrice { get; set; }
         public decimal Volume { get; set; }
+        public decimal QuoteVolume { get; set; }
         public DateTime Timestamp { get; set; }
         public decimal PriceChangePercent { get; set; }
     }

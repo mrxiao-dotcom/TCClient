@@ -213,6 +213,8 @@ namespace TCClient.ViewModels
         public ICommand ShowRankingCommand { get; }
         public ICommand ShowOrderWindowCommand { get; }
         public ICommand SwitchAccountCommand { get; }
+        public ICommand ShowPushStatisticsCommand { get; }
+        public ICommand ShowAccountQueryCommand { get; }
 
         public MainViewModel(
             IDatabaseService databaseService,
@@ -245,6 +247,8 @@ namespace TCClient.ViewModels
             TradeHistoryCommand = new RelayCommand(() => ShowTradeHistoryWindow());
             ShowOrderWindowCommand = new RelayCommand(ShowOrderWindow);
             SwitchAccountCommand = new RelayCommand(ShowSwitchAccountDialog);
+            ShowPushStatisticsCommand = new RelayCommand(ShowPushStatistics);
+            ShowAccountQueryCommand = new RelayCommand(ShowAccountQuery);
 
             // 初始化状态
             StatusMessage = "就绪";
@@ -373,10 +377,7 @@ namespace TCClient.ViewModels
         {
             try
             {
-                var services = ((App)Application.Current).Services;
-                var window = new RankingWindow(
-                    services.GetRequiredService<IRankingService>(),
-                    services.GetRequiredService<IMessageService>())
+                var window = new FindOpportunityWindow()
                 {
                     Owner = Application.Current.MainWindow
                 };
@@ -386,7 +387,7 @@ namespace TCClient.ViewModels
             {
                 LogMenuError(nameof(ShowFindOpportunity), ex);
                 _messageService.ShowMessage(
-                    $"打开排行榜窗口失败：{ex.Message}",
+                    $"打开寻找机会窗口失败：{ex.Message}",
                     "错误",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -884,6 +885,46 @@ namespace TCClient.ViewModels
             }
         }
 
+        private async void ShowPushStatistics()
+        {
+            try
+            {
+                if (SelectedAccount == null)
+                {
+                    _messageService.ShowMessage(
+                        "请先选择一个交易账户",
+                        "提示",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                var services = ((App)Application.Current).Services;
+                var viewModel = services.GetRequiredService<PushStatisticsViewModel>();
+                var window = new PushStatisticsWindow(viewModel)
+                {
+                    Owner = Application.Current.MainWindow
+                };
+                
+                // 确保当前账户ID已设置
+                AppSession.CurrentAccountId = SelectedAccount.Id;
+                
+                // 窗口显示后立即刷新数据
+                window.Loaded += async (s, e) => await viewModel.RefreshDataAsync();
+                
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowPushStatistics), ex);
+                _messageService.ShowMessage(
+                    $"打开推仓统计窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
         private void ShowOrderWindow()
         {
             try
@@ -914,6 +955,43 @@ namespace TCClient.ViewModels
                 LogMenuError(nameof(ShowOrderWindow), ex);
                 _messageService.ShowMessage(
                     $"打开下单窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private async void ShowAccountQuery()
+        {
+            try
+            {
+                if (SelectedAccount == null)
+                {
+                    _messageService.ShowMessage(
+                        "请先选择一个交易账户",
+                        "提示",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                var services = ((App)Application.Current).Services;
+                var viewModel = services.GetRequiredService<AccountQueryViewModel>();
+                var window = new AccountQueryWindow(viewModel)
+                {
+                    Owner = Application.Current.MainWindow
+                };
+                
+                // 确保当前账户ID已设置
+                AppSession.CurrentAccountId = SelectedAccount.Id;
+                
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowAccountQuery), ex);
+                _messageService.ShowMessage(
+                    $"打开账户查询窗口失败：{ex.Message}",
                     "错误",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);

@@ -28,13 +28,41 @@ namespace TCClient.Views
 
                 Utils.LogManager.Log("MainWindow", $"窗口初始状态: IsVisible={IsVisible}, WindowState={WindowState}, Width={Width}, Height={Height}");
 
-                // 简化关闭保护 - 同时考虑用户直接关闭和通过ExitCommand关闭的情况
+                // 窗口关闭事件处理 - 与菜单"退出"功能保持一致
                 this.Closing += (s, e) => 
                 {
                     if (!_userInitiatedClose && !TCClient.Utils.AppSession.UserRequestedExit)
                     {
-                        Utils.LogManager.Log("MainWindow", "Closing事件：非用户请求的关闭被取消");
-                        e.Cancel = true;
+                        Utils.LogManager.Log("MainWindow", "Closing事件：用户点击关闭按钮，执行退出确认流程");
+                        e.Cancel = true; // 先取消关闭
+                        
+                        // 调用与菜单"退出"相同的确认流程
+                        if (DataContext is MainViewModel viewModel)
+                        {
+                            Utils.LogManager.Log("MainWindow", "调用MainViewModel的ExitCommand");
+                            if (viewModel.ExitCommand.CanExecute(null))
+                            {
+                                viewModel.ExitCommand.Execute(null);
+                            }
+                        }
+                        else
+                        {
+                            Utils.LogManager.Log("MainWindow", "DataContext不是MainViewModel，直接执行退出确认");
+                            // 如果无法获取ViewModel，直接执行简单的确认对话框
+                            var result = MessageBox.Show(
+                                "确定要退出应用程序吗？",
+                                "确认",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Question);
+                            
+                            if (result == MessageBoxResult.Yes)
+                            {
+                                Utils.LogManager.Log("MainWindow", "用户确认退出，设置退出标志");
+                                _userInitiatedClose = true;
+                                TCClient.Utils.AppSession.UserRequestedExit = true;
+                                Close(); // 重新调用关闭
+                            }
+                        }
                     }
                     else
                     {

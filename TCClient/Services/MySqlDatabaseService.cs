@@ -1247,11 +1247,11 @@ namespace TCClient.Services
                     INSERT INTO trading_accounts 
                             (account_name, binance_account_id, api_key, api_secret, api_passphrase,
                              equity, initial_equity, opportunity_count, status, is_active,
-                             create_time, update_time, is_default)
+                             create_time, update_time)
                     VALUES 
                             (@account_name, @binance_account_id, @api_key, @api_secret, @api_passphrase,
                              @equity, @initial_equity, @opportunity_count, @status, @is_active,
-                             @create_time, @update_time, @is_default);
+                             @create_time, @update_time);
                             SELECT LAST_INSERT_ID();";
 
                         long accountId;
@@ -1270,7 +1270,6 @@ namespace TCClient.Services
                     command.Parameters.AddWithValue("@is_active", account.IsActive);
                     command.Parameters.AddWithValue("@create_time", DateTime.Now);
                     command.Parameters.AddWithValue("@update_time", DateTime.Now);
-                            command.Parameters.AddWithValue("@is_default", account.IsDefault);
 
                             accountId = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
                         }
@@ -1334,8 +1333,7 @@ namespace TCClient.Services
                         opportunity_count = @opportunity_count,
                         status = @status,
                         is_active = @is_active,
-                                update_time = @update_time,
-                                is_default = @is_default
+                        update_time = @update_time
                     WHERE id = @id;";
 
                 using (var command = new MySqlCommand(query, connection))
@@ -1353,7 +1351,6 @@ namespace TCClient.Services
                     command.Parameters.AddWithValue("@status", account.Status);
                     command.Parameters.AddWithValue("@is_active", account.IsActive);
                     command.Parameters.AddWithValue("@update_time", DateTime.Now);
-                            command.Parameters.AddWithValue("@is_default", account.IsDefault);
 
                             var result = await command.ExecuteNonQueryAsync(cancellationToken);
                             if (result <= 0)
@@ -2921,5 +2918,840 @@ namespace TCClient.Services
         }
 
         #endregion
+
+        /// <summary>
+        /// 获取当前用户信息
+        /// </summary>
+        public async Task<User> GetCurrentUserAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // 从AppSession获取当前用户ID
+                if (AppSession.CurrentUserId <= 0)
+                {
+                    LogManager.Log("Database", "当前用户ID无效");
+                    return null;
+                }
+
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = "SELECT * FROM users WHERE id = @id";
+                        command.Parameters.AddWithValue("@id", AppSession.CurrentUserId);
+                        LogManager.Log("Database", $"执行SQL: {command.CommandText}");
+
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                var user = new User
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    Username = reader.GetString("username"),
+                                    Email = reader.IsDBNull(reader.GetOrdinal("email")) ? null : reader.GetString("email"),
+                                    LastLoginTime = reader.IsDBNull(reader.GetOrdinal("last_login_time")) ? null : (DateTime?)reader.GetDateTime("last_login_time"),
+                                    Status = reader.GetInt32("status"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    UpdateTime = reader.GetDateTime("update_time")
+                                };
+                                
+                                LogManager.Log("Database", $"成功获取当前用户信息: ID={user.Id}, 用户名={user.Username}");
+                                return user;
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"未找到当前用户: ID={AppSession.CurrentUserId}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取当前用户信息失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 获取账户持仓信息
+        /// </summary>
+        public async Task<List<AccountPosition>> GetAccountPositionsAsync(long accountId, CancellationToken cancellationToken = default)
+        {
+            var positions = new List<AccountPosition>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT id, account_id, symbol, position_side, entry_price, mark_price, 
+                                   position_amt, leverage, margin_type, isolated_margin, 
+                                   unrealized_pnl, liquidation_price, timestamp, created_at, updated_at
+                            FROM account_positions 
+                            WHERE account_id = @accountId 
+                            AND ABS(position_amt) > 0
+                            ORDER BY symbol ASC";
+                        
+                        command.Parameters.AddWithValue("@accountId", accountId);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                var position = new AccountPosition
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    AccountId = reader.GetInt64("account_id"),
+                                    Symbol = reader.GetString("symbol"),
+                                    PositionSide = reader.GetString("position_side"),
+                                    EntryPrice = reader.GetDecimal("entry_price"),
+                                    MarkPrice = reader.GetDecimal("mark_price"),
+                                    PositionAmt = reader.GetDecimal("position_amt"),
+                                    Leverage = reader.GetInt32("leverage"),
+                                    MarginType = reader.GetString("margin_type"),
+                                    IsolatedMargin = reader.GetDecimal("isolated_margin"),
+                                    UnrealizedPnl = reader.GetDecimal("unrealized_pnl"),
+                                    LiquidationPrice = reader.GetDecimal("liquidation_price"),
+                                    Timestamp = reader.IsDBNull("timestamp") ? DateTime.Now : reader.GetDateTime("timestamp"),
+                                    CreatedAt = reader.GetDateTime("created_at"),
+                                    UpdatedAt = reader.GetDateTime("updated_at")
+                                };
+                                
+                                positions.Add(position);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取账户 {accountId} 持仓信息成功，共 {positions.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取账户 {accountId} 持仓信息失败");
+                throw;
+            }
+            
+            return positions;
+        }
+
+        /// <summary>
+        /// 获取账户余额信息
+        /// </summary>
+        public async Task<AccountBalance> GetAccountBalanceAsync(long accountId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    
+                    // 优先从account_balances表获取
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT account_id, total_equity, available_balance, 
+                                   margin_balance, unrealized_pnl, timestamp
+                            FROM account_balances 
+                            WHERE account_id = @accountId 
+                            ORDER BY timestamp DESC 
+                            LIMIT 1";
+                        
+                        command.Parameters.AddWithValue("@accountId", accountId);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                var balance = new AccountBalance
+                                {
+                                    AccountId = reader.GetInt64("account_id"),
+                                    TotalEquity = reader.GetDecimal("total_equity"),
+                                    AvailableBalance = reader.GetDecimal("available_balance"),
+                                    MarginBalance = reader.GetDecimal("margin_balance"),
+                                    UnrealizedPnL = reader.GetDecimal("unrealized_pnl"),
+                                    Timestamp = reader.GetDateTime("timestamp"),
+                                    Source = "account_balances"
+                                };
+                                
+                                LogManager.Log("Database", $"从account_balances表获取账户 {accountId} 余额信息成功");
+                                return balance;
+                            }
+                        }
+                    }
+                    
+                    // 如果account_balances表没有数据，从trading_accounts表获取基本信息
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT id, equity, opportunity_count 
+                            FROM trading_accounts 
+                            WHERE id = @accountId";
+                        
+                        command.Parameters.AddWithValue("@accountId", accountId);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                var balance = new AccountBalance
+                                {
+                                    AccountId = reader.GetInt64("id"),
+                                    TotalEquity = reader.GetDecimal("equity"),
+                                    AvailableBalance = reader.GetDecimal("equity"),
+                                    MarginBalance = reader.GetDecimal("equity"),
+                                    UnrealizedPnL = 0m,
+                                    Timestamp = DateTime.Now,
+                                    Source = "trading_accounts",
+                                    OpportunityCount = reader.GetInt32("opportunity_count")
+                                };
+                                
+                                LogManager.Log("Database", $"从trading_accounts表获取账户 {accountId} 余额信息成功");
+                                return balance;
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"未找到账户 {accountId} 的余额信息");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取账户 {accountId} 余额信息失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 获取所有开放订单
+        /// </summary>
+        public async Task<List<SimulationOrder>> GetAllOpenOrdersAsync()
+        {
+            var orders = new List<SimulationOrder>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT id, order_id, account_id, contract, contract_size, direction, 
+                                   quantity, entry_price, initial_stop_loss, current_stop_loss,
+                                   highest_price, max_floating_profit, leverage, margin, total_value,
+                                   status, open_time, close_time, close_price, realized_profit,
+                                   close_type, real_profit, floating_pnl, current_price, last_update_time
+                            FROM simulation_orders 
+                            WHERE status = 'open'
+                            ORDER BY open_time DESC";
+                        
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                var order = new SimulationOrder
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    OrderId = reader.GetString("order_id"),
+                                    AccountId = reader.GetInt64("account_id"),
+                                    Contract = reader.GetString("contract"),
+                                    ContractSize = reader.GetDecimal("contract_size"),
+                                    Direction = reader.GetString("direction"),
+                                    Quantity = reader.GetFloat("quantity"),
+                                    EntryPrice = reader.GetDecimal("entry_price"),
+                                    InitialStopLoss = reader.GetDecimal("initial_stop_loss"),
+                                    CurrentStopLoss = reader.GetDecimal("current_stop_loss"),
+                                    HighestPrice = reader.IsDBNull("highest_price") ? null : reader.GetDecimal("highest_price"),
+                                    MaxFloatingProfit = reader.IsDBNull("max_floating_profit") ? null : reader.GetDecimal("max_floating_profit"),
+                                    Leverage = reader.GetInt32("leverage"),
+                                    Margin = reader.GetDecimal("margin"),
+                                    TotalValue = reader.GetDecimal("total_value"),
+                                    Status = reader.GetString("status"),
+                                    OpenTime = reader.GetDateTime("open_time"),
+                                    CloseTime = reader.IsDBNull("close_time") ? null : reader.GetDateTime("close_time"),
+                                    ClosePrice = reader.IsDBNull("close_price") ? null : reader.GetDecimal("close_price"),
+                                    RealizedProfit = reader.IsDBNull("realized_profit") ? null : reader.GetDecimal("realized_profit"),
+                                    CloseType = reader.IsDBNull("close_type") ? null : reader.GetString("close_type"),
+                                    RealProfit = reader.IsDBNull("real_profit") ? null : reader.GetDecimal("real_profit"),
+                                    FloatingPnL = reader.IsDBNull("floating_pnl") ? null : reader.GetDecimal("floating_pnl"),
+                                    CurrentPrice = reader.IsDBNull("current_price") ? null : reader.GetDecimal("current_price"),
+                                    LastUpdateTime = reader.IsDBNull("last_update_time") ? null : reader.GetDateTime("last_update_time")
+                                };
+                                
+                                orders.Add(order);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取所有开放订单成功，共 {orders.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取所有开放订单失败");
+                throw;
+            }
+            
+            return orders;
+        }
+
+        /// <summary>
+        /// 获取所有推仓信息
+        /// </summary>
+        public async Task<List<PushSummaryInfo>> GetAllPushInfosAsync(long accountId)
+        {
+            var pushInfos = new List<PushSummaryInfo>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT id, contract, status, create_time, close_time
+                            FROM position_push_info 
+                            WHERE account_id = @accountId
+                            ORDER BY create_time DESC";
+                        
+                        command.Parameters.AddWithValue("@accountId", accountId);
+                        
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                var pushInfo = new PushSummaryInfo
+                                {
+                                    PushId = reader.GetInt64("id"),
+                                    Contract = reader.GetString("contract"),
+                                    Status = reader.GetString("status"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    CloseTime = reader.IsDBNull("close_time") ? null : reader.GetDateTime("close_time")
+                                };
+                                
+                                pushInfos.Add(pushInfo);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取账户 {accountId} 所有推仓信息成功，共 {pushInfos.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取账户 {accountId} 所有推仓信息失败");
+                throw;
+            }
+            
+            return pushInfos;
+        }
+
+        /// <summary>
+        /// 获取推仓订单
+        /// </summary>
+        public async Task<List<SimulationOrder>> GetPushOrdersAsync(long pushId)
+        {
+            var orders = new List<SimulationOrder>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT so.id, so.order_id, so.account_id, so.contract, so.contract_size, 
+                                   so.direction, so.quantity, so.entry_price, so.initial_stop_loss,
+                                   so.current_stop_loss, so.highest_price, so.max_floating_profit,
+                                   so.leverage, so.margin, so.total_value, so.status, so.open_time,
+                                   so.close_time, so.close_price, so.realized_profit, so.close_type,
+                                   so.real_profit, so.floating_pnl, so.current_price, so.last_update_time
+                            FROM simulation_orders so
+                            INNER JOIN position_push_order_rel por ON so.id = por.order_id
+                            WHERE por.push_id = @pushId
+                            ORDER BY so.open_time ASC";
+                        
+                        command.Parameters.AddWithValue("@pushId", pushId);
+                        
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                var order = new SimulationOrder
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    OrderId = reader.GetString("order_id"),
+                                    AccountId = reader.GetInt64("account_id"),
+                                    Contract = reader.GetString("contract"),
+                                    ContractSize = reader.GetDecimal("contract_size"),
+                                    Direction = reader.GetString("direction"),
+                                    Quantity = reader.GetFloat("quantity"),
+                                    EntryPrice = reader.GetDecimal("entry_price"),
+                                    InitialStopLoss = reader.GetDecimal("initial_stop_loss"),
+                                    CurrentStopLoss = reader.GetDecimal("current_stop_loss"),
+                                    HighestPrice = reader.IsDBNull("highest_price") ? null : reader.GetDecimal("highest_price"),
+                                    MaxFloatingProfit = reader.IsDBNull("max_floating_profit") ? null : reader.GetDecimal("max_floating_profit"),
+                                    Leverage = reader.GetInt32("leverage"),
+                                    Margin = reader.GetDecimal("margin"),
+                                    TotalValue = reader.GetDecimal("total_value"),
+                                    Status = reader.GetString("status"),
+                                    OpenTime = reader.GetDateTime("open_time"),
+                                    CloseTime = reader.IsDBNull("close_time") ? null : reader.GetDateTime("close_time"),
+                                    ClosePrice = reader.IsDBNull("close_price") ? null : reader.GetDecimal("close_price"),
+                                    RealizedProfit = reader.IsDBNull("realized_profit") ? null : reader.GetDecimal("realized_profit"),
+                                    CloseType = reader.IsDBNull("close_type") ? null : reader.GetString("close_type"),
+                                    RealProfit = reader.IsDBNull("real_profit") ? null : reader.GetDecimal("real_profit"),
+                                    FloatingPnL = reader.IsDBNull("floating_pnl") ? null : reader.GetDecimal("floating_pnl"),
+                                    CurrentPrice = reader.IsDBNull("current_price") ? null : reader.GetDecimal("current_price"),
+                                    LastUpdateTime = reader.IsDBNull("last_update_time") ? null : reader.GetDateTime("last_update_time")
+                                };
+                                
+                                orders.Add(order);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取推仓 {pushId} 订单成功，共 {orders.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取推仓 {pushId} 订单失败");
+                throw;
+            }
+            
+            return orders;
+        }
+
+        /// <summary>
+        /// 插入止损止盈单
+        /// </summary>
+        public async Task<long> InsertStopTakeOrderAsync(StopTakeOrder order, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            INSERT INTO stop_take_orders 
+                            (account_id, symbol, direction, quantity, trigger_price, 
+                             status, create_time, update_time)
+                            VALUES 
+                            (@accountId, @symbol, @direction, @quantity, @triggerPrice, 
+                             @status, NOW(), NOW());
+                            SELECT LAST_INSERT_ID();";
+                        
+                        command.Parameters.AddWithValue("@accountId", order.AccountId);
+                        command.Parameters.AddWithValue("@symbol", order.Symbol);
+                        command.Parameters.AddWithValue("@direction", order.Direction);
+                        command.Parameters.AddWithValue("@quantity", order.Quantity);
+                        command.Parameters.AddWithValue("@triggerPrice", order.TriggerPrice);
+                        command.Parameters.AddWithValue("@status", order.Status);
+                        
+                        var result = await command.ExecuteScalarAsync(cancellationToken);
+                        var orderId = Convert.ToInt64(result);
+                        
+                        LogManager.Log("Database", $"插入止损止盈单成功，ID: {orderId}");
+                        return orderId;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "插入止损止盈单失败");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 获取止损止盈单列表
+        /// </summary>
+        public async Task<List<StopTakeOrder>> GetStopTakeOrdersAsync(long accountId, CancellationToken cancellationToken = default)
+        {
+            var orders = new List<StopTakeOrder>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT id, account_id, symbol, direction, quantity, trigger_price, 
+                                   status, binance_order_id, execution_price, error_message, 
+                                   create_time, update_time
+                            FROM stop_take_orders 
+                            WHERE account_id = @accountId
+                            ORDER BY create_time DESC";
+                        
+                        command.Parameters.AddWithValue("@accountId", accountId);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                var order = new StopTakeOrder
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    AccountId = reader.GetInt64("account_id"),
+                                    Symbol = reader.GetString("symbol"),
+                                    Direction = reader.GetString("direction"),
+                                    Quantity = reader.GetDecimal("quantity"),
+                                    TriggerPrice = reader.GetDecimal("trigger_price"),
+                                    Status = reader.GetString("status"),
+                                    BinanceOrderId = reader.IsDBNull("binance_order_id") ? null : reader.GetString("binance_order_id"),
+                                    ExecutionPrice = reader.IsDBNull("execution_price") ? null : reader.GetDecimal("execution_price"),
+                                    ErrorMessage = reader.IsDBNull("error_message") ? null : reader.GetString("error_message"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    UpdateTime = reader.GetDateTime("update_time")
+                                };
+                                
+                                orders.Add(order);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取账户 {accountId} 止损止盈单成功，共 {orders.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取账户 {accountId} 止损止盈单失败");
+                throw;
+            }
+            
+            return orders;
+        }
+
+        /// <summary>
+        /// 获取等待中的止损止盈单
+        /// </summary>
+        public async Task<List<StopTakeOrder>> GetWaitingStopTakeOrdersAsync(CancellationToken cancellationToken = default)
+        {
+            var orders = new List<StopTakeOrder>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT id, account_id, symbol, direction, quantity, trigger_price, 
+                                   status, binance_order_id, execution_price, error_message, 
+                                   create_time, update_time
+                            FROM stop_take_orders 
+                            WHERE status = 'WAITING'
+                            ORDER BY create_time ASC";
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                var order = new StopTakeOrder
+                                {
+                                    Id = reader.GetInt64("id"),
+                                    AccountId = reader.GetInt64("account_id"),
+                                    Symbol = reader.GetString("symbol"),
+                                    Direction = reader.GetString("direction"),
+                                    Quantity = reader.GetDecimal("quantity"),
+                                    TriggerPrice = reader.GetDecimal("trigger_price"),
+                                    Status = reader.GetString("status"),
+                                    BinanceOrderId = reader.IsDBNull("binance_order_id") ? null : reader.GetString("binance_order_id"),
+                                    ExecutionPrice = reader.IsDBNull("execution_price") ? null : reader.GetDecimal("execution_price"),
+                                    ErrorMessage = reader.IsDBNull("error_message") ? null : reader.GetString("error_message"),
+                                    CreateTime = reader.GetDateTime("create_time"),
+                                    UpdateTime = reader.GetDateTime("update_time")
+                                };
+                                
+                                orders.Add(order);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取等待中的止损止盈单成功，共 {orders.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取等待中的止损止盈单失败");
+                throw;
+            }
+            
+            return orders;
+        }
+
+        /// <summary>
+        /// 更新止损止盈单状态
+        /// </summary>
+        public async Task<bool> UpdateStopTakeOrderStatusAsync(long orderId, string status, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE stop_take_orders 
+                            SET status = @status, updated_at = NOW()
+                            WHERE id = @orderId";
+                        
+                        command.Parameters.AddWithValue("@orderId", orderId);
+                        command.Parameters.AddWithValue("@status", status);
+                        
+                        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+                        var success = rowsAffected > 0;
+                        
+                        LogManager.Log("Database", $"更新止损止盈单状态 - OrderId: {orderId}, Status: {status}, Success: {success}");
+                        return success;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"更新止损止盈单状态失败 - OrderId: {orderId}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 更新止损止盈单为已执行状态
+        /// </summary>
+        public async Task<bool> UpdateStopTakeOrderToExecutedAsync(long orderId, string binanceOrderId, decimal executionPrice, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE stop_take_orders 
+                            SET status = 'executed', binance_order_id = @binanceOrderId, 
+                                execution_price = @executionPrice, updated_at = NOW()
+                            WHERE id = @orderId";
+                        
+                        command.Parameters.AddWithValue("@orderId", orderId);
+                        command.Parameters.AddWithValue("@binanceOrderId", binanceOrderId);
+                        command.Parameters.AddWithValue("@executionPrice", executionPrice);
+                        
+                        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+                        var success = rowsAffected > 0;
+                        
+                        LogManager.Log("Database", $"更新止损止盈单为已执行 - OrderId: {orderId}, BinanceOrderId: {binanceOrderId}, ExecutionPrice: {executionPrice}, Success: {success}");
+                        return success;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"更新止损止盈单为已执行失败 - OrderId: {orderId}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 更新止损止盈单为失败状态
+        /// </summary>
+        public async Task<bool> UpdateStopTakeOrderToFailedAsync(long orderId, string errorMessage, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE stop_take_orders 
+                            SET status = 'failed', error_message = @errorMessage, updated_at = NOW()
+                            WHERE id = @orderId";
+                        
+                        command.Parameters.AddWithValue("@orderId", orderId);
+                        command.Parameters.AddWithValue("@errorMessage", errorMessage);
+                        
+                        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+                        var success = rowsAffected > 0;
+                        
+                        LogManager.Log("Database", $"更新止损止盈单为失败 - OrderId: {orderId}, ErrorMessage: {errorMessage}, Success: {success}");
+                        return success;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"更新止损止盈单为失败状态失败 - OrderId: {orderId}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 取消止损止盈单
+        /// </summary>
+        public async Task<bool> CancelStopTakeOrderAsync(long orderId, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            UPDATE stop_take_orders 
+                            SET status = 'cancelled', updated_at = NOW()
+                            WHERE id = @orderId";
+                        
+                        command.Parameters.AddWithValue("@orderId", orderId);
+                        
+                        var rowsAffected = await command.ExecuteNonQueryAsync(cancellationToken);
+                        var success = rowsAffected > 0;
+                        
+                        LogManager.Log("Database", $"取消止损止盈单 - OrderId: {orderId}, Success: {success}");
+                        return success;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"取消止损止盈单失败 - OrderId: {orderId}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取所有交易对符号
+        /// </summary>
+        public async Task<List<string>> GetAllSymbolsAsync(CancellationToken cancellationToken = default)
+        {
+            var symbols = new List<string>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT DISTINCT symbol 
+                            FROM kline_data 
+                            ORDER BY symbol ASC";
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                symbols.Add(reader.GetString("symbol"));
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取所有交易对符号成功，共 {symbols.Count} 个");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "获取所有交易对符号失败");
+                throw;
+            }
+            
+            return symbols;
+        }
+
+        /// <summary>
+        /// 获取K线数据
+        /// </summary>
+        public async Task<List<KLineData>> GetKlineDataAsync(string symbol, DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default)
+        {
+            var klineData = new List<KLineData>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"
+                            SELECT symbol, open_time, close_time, open_price, high_price, 
+                                   low_price, close_price, volume, quote_volume, trades, 
+                                   taker_buy_volume, taker_buy_quote_volume
+                            FROM kline_data 
+                            WHERE symbol = @symbol 
+                            AND open_time BETWEEN @startDate AND @endDate
+                            ORDER BY open_time ASC";
+                        
+                        command.Parameters.AddWithValue("@symbol", symbol);
+                        command.Parameters.AddWithValue("@startDate", startDate);
+                        command.Parameters.AddWithValue("@endDate", endDate);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                var kline = new KLineData
+                                {
+                                    Symbol = reader.GetString("symbol"),
+                                    OpenTime = reader.GetDateTime("open_time"),
+                                    CloseTime = reader.GetDateTime("close_time"),
+                                    OpenPrice = reader.GetDecimal("open_price"),
+                                    HighPrice = reader.GetDecimal("high_price"),
+                                    LowPrice = reader.GetDecimal("low_price"),
+                                    ClosePrice = reader.GetDecimal("close_price"),
+                                    Volume = reader.GetDecimal("volume"),
+                                    QuoteVolume = reader.GetDecimal("quote_volume"),
+                                    Trades = reader.GetInt32("trades"),
+                                    TakerBuyVolume = reader.GetDecimal("taker_buy_volume"),
+                                    TakerBuyQuoteVolume = reader.GetDecimal("taker_buy_quote_volume")
+                                };
+                                
+                                klineData.Add(kline);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取 {symbol} K线数据成功，共 {klineData.Count} 条记录");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取 {symbol} K线数据失败");
+                throw;
+            }
+            
+            return klineData;
+        }
     }
 }

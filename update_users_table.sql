@@ -235,16 +235,27 @@ ENGINE=InnoDB
 AUTO_INCREMENT=373
 ;
 
--- 添加 real_pnl 字段到 simulation_orders 表
-ALTER TABLE `simulation_orders` 
-ADD COLUMN `real_pnl` DECIMAL(20,2) NULL DEFAULT NULL COMMENT '实际盈亏（按止损价计算的盈亏）' 
-AFTER `last_update_time`;
-
--- 更新现有订单的 real_pnl 值
-UPDATE `simulation_orders` 
-SET `real_pnl` = CASE 
-    WHEN `direction` = 'buy' THEN (`initial_stop_loss` - `entry_price`) * `quantity` * `contract_size`
-    WHEN `direction` = 'sell' THEN (`entry_price` - `initial_stop_loss`) * `quantity` * `contract_size`
-    ELSE 0 
-END
-WHERE `real_pnl` IS NULL;
+-- 止损止盈单表
+CREATE TABLE stop_take_orders (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    account_id BIGINT NOT NULL COMMENT '关联账户ID',
+    simulation_order_id BIGINT NOT NULL COMMENT '关联的模拟订单ID',
+    symbol VARCHAR(20) NOT NULL COMMENT '交易对符号',
+    order_type ENUM('STOP_LOSS', 'TAKE_PROFIT') NOT NULL COMMENT '订单类型：止损/止盈',
+    direction VARCHAR(10) NOT NULL COMMENT '交易方向：BUY/SELL',
+    quantity DECIMAL(20,8) NOT NULL COMMENT '数量',
+    trigger_price DECIMAL(20,8) NOT NULL COMMENT '触发价格',
+    working_type ENUM('MARK_PRICE', 'CONTRACT_PRICE') NOT NULL DEFAULT 'MARK_PRICE' COMMENT '触发价格类型',
+    status ENUM('WAITING', 'SET','TRIGGERED', 'EXECUTED', 'CANCELLED', 'FAILED') NOT NULL DEFAULT 'WAITING' COMMENT '状态',
+    binance_order_id VARCHAR(50) NULL COMMENT '币安订单ID',
+    execution_price DECIMAL(20,8) NULL COMMENT '执行价格',
+    execution_time DATETIME NULL COMMENT '执行时间',
+    error_message TEXT NULL COMMENT '错误信息',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (account_id) REFERENCES trading_accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (simulation_order_id) REFERENCES simulation_orders(id) ON DELETE CASCADE,
+    INDEX idx_account_status (account_id, status),
+    INDEX idx_simulation_order (simulation_order_id),
+    INDEX idx_symbol_status (symbol, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='止损止盈单表';

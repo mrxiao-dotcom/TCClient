@@ -53,6 +53,12 @@ namespace TCClient.Services
         /// </summary>
         /// <returns>所有合约的行情信息列表</returns>
         Task<List<TickerInfo>> GetAllTickersAsync();
+
+        /// <summary>
+        /// 获取所有可交易的合约符号
+        /// </summary>
+        /// <returns>可交易的合约符号列表</returns>
+        Task<List<string>> GetTradableSymbolsAsync();
     }
 
     public class OrderRequest

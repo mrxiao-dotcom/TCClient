@@ -72,6 +72,9 @@ namespace TCClient.Services
         Task<decimal> GetAccountAvailableRiskAmountAsync(long accountId);
         Task<decimal> GetContractAvailableRiskAmountAsync(long accountId, string contract);
         Task<bool> UpdatePushInfoStatusAsync(long pushId, string status, DateTime? closeTime = null);
+        Task<List<SimulationOrder>> GetAllOpenOrdersAsync();
+        Task<List<PushSummaryInfo>> GetAllPushInfosAsync(long accountId);
+        Task<List<SimulationOrder>> GetPushOrdersAsync(long pushId);
 
         // 用户-账户关联相关
         Task AddUserTradingAccountAsync(long userId, long accountId, bool isDefault, CancellationToken cancellationToken = default);
@@ -85,5 +88,24 @@ namespace TCClient.Services
         Task<bool> UpdateConditionalOrderToExecutedAsync(long orderId, string executionOrderId, CancellationToken cancellationToken = default);
         Task<bool> UpdateConditionalOrderToFailedAsync(long orderId, string errorMessage, CancellationToken cancellationToken = default);
         Task<bool> CancelConditionalOrderAsync(long orderId, CancellationToken cancellationToken = default);
+        
+        // 止损止盈单相关
+        Task<long> InsertStopTakeOrderAsync(StopTakeOrder order, CancellationToken cancellationToken = default);
+        Task<List<StopTakeOrder>> GetStopTakeOrdersAsync(long accountId, CancellationToken cancellationToken = default);
+        Task<List<StopTakeOrder>> GetWaitingStopTakeOrdersAsync(CancellationToken cancellationToken = default);
+        Task<bool> UpdateStopTakeOrderStatusAsync(long orderId, string status, CancellationToken cancellationToken = default);
+        Task<bool> UpdateStopTakeOrderToExecutedAsync(long orderId, string binanceOrderId, decimal executionPrice, CancellationToken cancellationToken = default);
+        Task<bool> UpdateStopTakeOrderToFailedAsync(long orderId, string errorMessage, CancellationToken cancellationToken = default);
+        Task<bool> CancelStopTakeOrderAsync(long orderId, CancellationToken cancellationToken = default);
+
+        // K线数据相关
+        Task<List<string>> GetAllSymbolsAsync(CancellationToken cancellationToken = default);
+        Task<List<KLineData>> GetKlineDataAsync(string symbol, DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default);
+        
+        // 账户余额相关
+        Task<AccountBalance> GetAccountBalanceAsync(long accountId, CancellationToken cancellationToken = default);
+        
+        // 账户持仓相关
+        Task<List<AccountPosition>> GetAccountPositionsAsync(long accountId, CancellationToken cancellationToken = default);
     }
 } 

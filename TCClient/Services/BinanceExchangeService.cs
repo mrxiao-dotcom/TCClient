@@ -34,6 +34,17 @@ namespace TCClient.Services
         private readonly Random _random = new Random();
         private const int BASE_TIMEOUT = 5; // 基础超时时间（秒）
         private const int MAX_TIMEOUT = 15; // 最大超时时间（秒）
+        
+        // 请求频率控制
+        private static readonly Dictionary<string, DateTime> _lastRequestTimes = new Dictionary<string, DateTime>();
+        private static readonly object _rateLimitLock = new object();
+        private const int MIN_REQUEST_INTERVAL_MS = 250; // 最小请求间隔250毫秒（每分钟最多240次请求）
+        private const int TICKER_REQUEST_INTERVAL_MS = 2000; // 行情数据请求间隔2秒
+        
+        // 缓存机制
+        private static List<TickerInfo> _cachedTickers = null;
+        private static DateTime _lastTickerCacheTime = DateTime.MinValue;
+        private const int TICKER_CACHE_DURATION_MS = 5000; // 行情数据缓存5秒
 
         public BinanceExchangeService(ILogger<BinanceExchangeService> logger, string apiKey = null, string apiSecret = null)
         {
@@ -81,12 +92,46 @@ namespace TCClient.Services
             return BitConverter.ToString(hash).Replace("-", "").ToLower();
         }
 
+        /// <summary>
+        /// 请求频率控制
+        /// </summary>
+        private async Task RateLimitAsync(string endpoint)
+        {
+            int delayMs = 0;
+            
+            lock (_rateLimitLock)
+            {
+                var now = DateTime.Now;
+                var intervalMs = endpoint.Contains("ticker") ? TICKER_REQUEST_INTERVAL_MS : MIN_REQUEST_INTERVAL_MS;
+                
+                if (_lastRequestTimes.TryGetValue(endpoint, out var lastTime))
+                {
+                    var elapsed = (now - lastTime).TotalMilliseconds;
+                    if (elapsed < intervalMs)
+                    {
+                        delayMs = (int)(intervalMs - elapsed);
+                    }
+                }
+                
+                _lastRequestTimes[endpoint] = DateTime.Now;
+            }
+            
+            if (delayMs > 0)
+            {
+                Utils.LogManager.Log("BinanceExchange", $"请求频率控制: 等待 {delayMs}ms");
+                await Task.Delay(delayMs);
+            }
+        }
+
         private async Task<T> SendRequestAsync<T>(string endpoint, HttpMethod method, Dictionary<string, string> parameters = null, bool requireSignature = false, int retryCount = 0)
         {
             if (_isDisposed)
             {
                 throw new ObjectDisposedException(nameof(BinanceExchangeService));
             }
+
+            // 应用请求频率控制
+            await RateLimitAsync(endpoint);
 
             try
             {
@@ -198,6 +243,24 @@ namespace TCClient.Services
                     else
                     {
                         Utils.LogManager.Log("BinanceExchange", $"请求失败 - 状态码: {response.StatusCode}, 内容: {content}");
+                        
+                        // 特殊处理429错误（频率限制）
+                        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                        {
+                            if (retryCount < MaxRetries)
+                            {
+                                var delayMs = (retryCount + 1) * 5000; // 5秒、10秒、15秒的递增延迟
+                                Utils.LogManager.Log("BinanceExchange", $"遇到频率限制，等待 {delayMs}ms 后重试 ({retryCount + 1}/{MaxRetries})");
+                                await Task.Delay(delayMs);
+                                return await SendRequestAsync<T>(endpoint, method, parameters, requireSignature, retryCount + 1);
+                            }
+                            else
+                            {
+                                Utils.LogManager.Log("BinanceExchange", "频率限制重试次数已用完，建议使用WebSocket获取实时数据");
+                                throw new HttpRequestException($"API频率限制: {content}");
+                            }
+                        }
+                        
                         throw new HttpRequestException($"请求失败: {response.StatusCode} - {content}");
                     }
                 }
@@ -284,7 +347,7 @@ namespace TCClient.Services
                             High = high,
                             Low = low,
                             Close = close,
-                            Volume = volume
+                            Volume = (decimal)volume
                         });
                     }
                     catch (Exception ex)
@@ -459,6 +522,14 @@ namespace TCClient.Services
         {
             try
             {
+                // 检查缓存
+                var now = DateTime.Now;
+                if (_cachedTickers != null && (now - _lastTickerCacheTime).TotalMilliseconds < TICKER_CACHE_DURATION_MS)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"使用缓存的行情数据，共 {_cachedTickers.Count} 个合约");
+                    return _cachedTickers;
+                }
+
                 string endpoint = "/fapi/v1/ticker/24hr";
                 var response = await SendRequestAsync<List<BinanceTickerResponse>>(endpoint, HttpMethod.Get);
                 
@@ -474,13 +545,14 @@ namespace TCClient.Services
                     try
                     {
                         // 使用TryParse替代Parse，并提供默认值
-                        decimal lastPrice = 0m, bidPrice = 0m, askPrice = 0m, volume = 0m, priceChangePercent = 0m;
+                        decimal lastPrice = 0m, bidPrice = 0m, askPrice = 0m, volume = 0m, quoteVolume = 0m, priceChangePercent = 0m;
                         
                         // 安全地解析每个字段
                         decimal.TryParse(item.LastPrice ?? "0", out lastPrice);
                         decimal.TryParse(item.BidPrice ?? "0", out bidPrice);
                         decimal.TryParse(item.AskPrice ?? "0", out askPrice);
                         decimal.TryParse(item.Volume ?? "0", out volume);
+                        decimal.TryParse(item.QuoteVolume ?? "0", out quoteVolume);
                         decimal.TryParse(item.PriceChangePercent ?? "0", out priceChangePercent);
 
                         // 只有当价格有效时才添加ticker
@@ -493,6 +565,7 @@ namespace TCClient.Services
                                 BidPrice = bidPrice,
                                 AskPrice = askPrice,
                                 Volume = volume,
+                                QuoteVolume = quoteVolume,
                                 Timestamp = DateTime.Now,
                                 PriceChangePercent = priceChangePercent
                             });
@@ -510,12 +583,45 @@ namespace TCClient.Services
                 }
 
                 Utils.LogManager.Log("BinanceExchange", $"成功获取 {tickers.Count} 个合约的行情数据");
+                
+                // 更新缓存
+                _cachedTickers = tickers;
+                _lastTickerCacheTime = DateTime.Now;
+                
                 return tickers;
             }
             catch (Exception ex)
             {
                 Utils.LogManager.Log("BinanceExchange", $"获取所有合约行情数据失败: {ex.Message}");
                 return new List<TickerInfo>();
+            }
+        }
+
+        public async Task<List<string>> GetTradableSymbolsAsync()
+        {
+            try
+            {
+                string endpoint = "/fapi/v1/exchangeInfo";
+                var response = await SendRequestAsync<BinanceExchangeInfoResponse>(endpoint, HttpMethod.Get);
+                
+                if (response?.Symbols == null)
+                {
+                    Utils.LogManager.Log("BinanceExchange", "获取交易所信息失败：响应为空");
+                    return new List<string>();
+                }
+
+                var tradableSymbols = response.Symbols
+                    .Where(s => s.Status == "TRADING" && s.Symbol.EndsWith("USDT"))
+                    .Select(s => s.Symbol)
+                    .ToList();
+
+                Utils.LogManager.Log("BinanceExchange", $"成功获取 {tradableSymbols.Count} 个可交易的USDT合约");
+                return tradableSymbols;
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.Log("BinanceExchange", $"获取可交易合约失败: {ex.Message}");
+                return new List<string>();
             }
         }
 
@@ -621,6 +727,9 @@ namespace TCClient.Services
             [JsonPropertyName("volume")]
             public string Volume { get; set; } = string.Empty;
             
+            [JsonPropertyName("quoteVolume")]
+            public string QuoteVolume { get; set; } = string.Empty;
+            
             [JsonPropertyName("closeTime")]
             public long CloseTime { get; set; }
             
@@ -670,6 +779,27 @@ namespace TCClient.Services
             public string? TotalMaintMargin { get; set; }
             public string? TotalPositionInitialMargin { get; set; }
             public string? AvailableBalance { get; set; }
+        }
+
+        private class BinanceExchangeInfoResponse
+        {
+            [JsonPropertyName("symbols")]
+            public List<BinanceSymbolInfo> Symbols { get; set; } = new List<BinanceSymbolInfo>();
+        }
+
+        private class BinanceSymbolInfo
+        {
+            [JsonPropertyName("symbol")]
+            public string Symbol { get; set; } = string.Empty;
+            
+            [JsonPropertyName("status")]
+            public string Status { get; set; } = string.Empty;
+            
+            [JsonPropertyName("baseAsset")]
+            public string BaseAsset { get; set; } = string.Empty;
+            
+            [JsonPropertyName("quoteAsset")]
+            public string QuoteAsset { get; set; } = string.Empty;
         }
     }
 } 

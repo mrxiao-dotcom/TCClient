@@ -10,6 +10,7 @@ namespace TCClient.Services
         Task<bool> ValidateUserAsync(string username, string password, CancellationToken cancellationToken = default);
         Task<bool> CreateUserAsync(string username, string password, CancellationToken cancellationToken = default);
         Task<User> GetUserAsync(string username, CancellationToken cancellationToken = default);
+        Task<User> GetCurrentUserAsync(CancellationToken cancellationToken = default);
         Task<List<Account>> GetUserAccountsAsync(string username, CancellationToken cancellationToken = default);
         Task<IEnumerable<TradingAccount>> GetTradingAccountsAsync(CancellationToken cancellationToken = default);
         Task<bool> CreateTradingAccountAsync(TradingAccount account, CancellationToken cancellationToken = default);

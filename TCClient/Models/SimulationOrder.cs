@@ -29,5 +29,13 @@ namespace TCClient.Models
         public decimal? FloatingPnL { get; set; }
         public decimal? CurrentPrice { get; set; }
         public DateTime? LastUpdateTime { get; set; }
+
+        // 用于UI显示的方向属性
+        public string DirectionDisplay => Direction?.ToLower() switch
+        {
+            "buy" => "多",
+            "sell" => "空",
+            _ => Direction
+        };
     }
 } 

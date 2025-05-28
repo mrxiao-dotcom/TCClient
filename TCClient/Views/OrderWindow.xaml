@@ -90,8 +90,8 @@
                             
                             <TextBlock Grid.Column="2" Text="方向：" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="12"/>
                             <StackPanel Grid.Column="3" Orientation="Horizontal" Height="24">
-                                <RadioButton Content="买入" IsChecked="True" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11"/>
-                                <RadioButton Content="卖出" VerticalAlignment="Center" FontSize="11"/>
+                                <RadioButton x:Name="BuyRadioButton" Content="买入" IsChecked="True" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11" GroupName="Direction" Checked="DirectionRadioButton_Checked"/>
+                                <RadioButton x:Name="SellRadioButton" Content="卖出" VerticalAlignment="Center" FontSize="11" GroupName="Direction" Checked="DirectionRadioButton_Checked"/>
                             </StackPanel>
                         </Grid>
 
@@ -207,9 +207,13 @@
                                     Width="60" 
                                     Height="24"
                                     FontSize="11"
-                                    Margin="0,0,10,0"
+                                    Margin="0,0,2,0"
                                     VerticalContentAlignment="Center"
                                     TextChanged="StopLossPercentageTextBox_TextChanged"/>
+                            
+                            <!-- 止损比例调整按钮 -->
+                            <Button Content="-" Width="24" Height="24" Margin="0,0,2,0" Click="DecreaseStopLossPercentage_Click" FontSize="11" ToolTip="减少1%"/>
+                            <Button Content="+" Width="24" Height="24" Margin="0,0,10,0" Click="IncreaseStopLossPercentage_Click" FontSize="11" ToolTip="增加1%"/>
 
                             <TextBlock Text="价格：" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
                             <TextBox x:Name="StopLossPriceTextBox" 
@@ -375,9 +379,14 @@
                               AutoGenerateColumns="False"
                               IsReadOnly="True"
                               Margin="10,10,10,20">
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="查看止损单" Click="ViewStopLossOrders_Click"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="订单ID" Binding="{Binding OrderId}" Width="100"/>
-                            <DataGridTextColumn Header="方向" Binding="{Binding Direction}" Width="60"/>
+                            <DataGridTextColumn Header="方向" Binding="{Binding DirectionDisplay}" Width="60"/>
                             <DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="80"/>
                             <DataGridTextColumn Header="开仓价" Binding="{Binding EntryPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
                             <DataGridTextColumn Header="止损价" Binding="{Binding CurrentStopLoss, Converter={StaticResource PriceFormatConverter}}" Width="100"/>

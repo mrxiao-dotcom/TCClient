@@ -104,7 +104,7 @@ namespace TCClient.Services
                     High = (double)high,
                     Low = (double)low,
                     Close = (double)close,
-                    Volume = (double)(_random.NextDouble() * 1000)
+                    Volume = (decimal)(_random.NextDouble() * 1000)
                 });
             }
 
@@ -146,13 +146,17 @@ namespace TCClient.Services
         {
             await Task.Delay(100); // 模拟网络延迟
             _lastPrice = _lastPrice * (1 + (decimal)((_random.NextDouble() - 0.5) * 0.01));
+            var volume = (decimal)(_random.NextDouble() * 1000);
+            var quoteVolume = volume * _lastPrice;
+            
             return new TickerInfo
             {
                 Symbol = symbol,
                 LastPrice = _lastPrice,
                 BidPrice = _lastPrice * 0.999m,
                 AskPrice = _lastPrice * 1.001m,
-                Volume = (decimal)(_random.NextDouble() * 1000),
+                Volume = volume,
+                QuoteVolume = quoteVolume,
                 Timestamp = DateTime.Now,
                 PriceChangePercent = (decimal)((_random.NextDouble() - 0.5) * 2) // 模拟-1%到1%的价格变化
             };
@@ -188,13 +192,17 @@ namespace TCClient.Services
                 var priceChange = (decimal)((_random.NextDouble() - 0.5) * 0.02); // -1% 到 1%
                 var currentPrice = basePrice * (1 + priceChange);
                 
+                var volume = (decimal)(_random.NextDouble() * 1000000);
+                var quoteVolume = volume * currentPrice; // 成交额 = 成交量 * 价格
+                
                 tickers.Add(new TickerInfo
                 {
                     Symbol = fullSymbol,
                     LastPrice = currentPrice,
                     BidPrice = currentPrice * 0.999m,
                     AskPrice = currentPrice * 1.001m,
-                    Volume = (decimal)(_random.NextDouble() * 1000000),
+                    Volume = volume,
+                    QuoteVolume = quoteVolume,
                     Timestamp = DateTime.Now,
                     PriceChangePercent = priceChange * 100 // 转换为百分比
                 });
@@ -202,6 +210,23 @@ namespace TCClient.Services
             
             TCClient.Utils.AppSession.Log($"[模拟] 获取所有合约行情数据成功 - 共 {tickers.Count} 个合约");
             return tickers;
+        }
+
+        public async Task<List<string>> GetTradableSymbolsAsync()
+        {
+            await Task.Delay(100); // 模拟网络延迟
+            
+            // 模拟一些常见的可交易合约
+            var tradableSymbols = new List<string>
+            {
+                "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", 
+                "DOGEUSDT", "ADAUSDT", "DOTUSDT", "AVAXUSDT", "MATICUSDT",
+                "LINKUSDT", "LTCUSDT", "BCHUSDT", "UNIUSDT", "ATOMUSDT",
+                "FILUSDT", "TRXUSDT", "ETCUSDT", "XLMUSDT", "VETUSDT"
+            };
+            
+            TCClient.Utils.AppSession.Log($"[模拟] 获取可交易合约成功 - 共 {tradableSymbols.Count} 个合约");
+            return tradableSymbols;
         }
 
         private int GetIntervalMinutes(string interval)

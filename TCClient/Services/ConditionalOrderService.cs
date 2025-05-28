@@ -54,9 +54,24 @@ namespace TCClient.Services
         /// </summary>
         public void Stop()
         {
-            _cts?.Cancel();
-            _isRunning = false;
-            LogManager.Log("ConditionalOrderService", "条件单监控服务已停止");
+            try
+            {
+                if (_cts != null && !_cts.Token.IsCancellationRequested)
+                {
+                    _cts.Cancel();
+                }
+                _isRunning = false;
+                LogManager.Log("ConditionalOrderService", "条件单监控服务已停止");
+            }
+            catch (ObjectDisposedException)
+            {
+                // CancellationTokenSource已被释放，忽略
+                LogManager.Log("ConditionalOrderService", "条件单监控服务停止时CancellationTokenSource已释放");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("ConditionalOrderService", ex, "停止条件单监控服务时发生异常");
+            }
         }
 
         /// <summary>
@@ -119,7 +134,8 @@ namespace TCClient.Services
             }
             catch (OperationCanceledException)
             {
-                // 正常取消，忽略
+                // 正常取消，不记录为异常
+                LogManager.Log("ConditionalOrderService", "条件单监控循环正常取消");
             }
             catch (Exception ex)
             {
@@ -288,8 +304,25 @@ namespace TCClient.Services
 
         public void Dispose()
         {
-            Stop();
-            _cts?.Dispose();
+            try
+            {
+                Stop();
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("ConditionalOrderService", ex, "Dispose时停止服务失败");
+            }
+            finally
+            {
+                try
+                {
+                    _cts?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    LogManager.LogException("ConditionalOrderService", ex, "Dispose时释放CancellationTokenSource失败");
+                }
+            }
         }
     }
 } 

@@ -59,7 +59,28 @@ public partial class App : Application
             TaskScheduler.UnobservedTaskException += (s, e) =>
             {
                 var ex = e.Exception;
-                LogManager.LogException("App.UnobservedTaskException", ex);
+                
+                // 检查是否是TaskCanceledException，如果是则不记录为异常
+                bool isTaskCanceled = false;
+                if (ex is AggregateException aggEx)
+                {
+                    isTaskCanceled = aggEx.InnerExceptions.All(innerEx => 
+                        innerEx is TaskCanceledException || innerEx is OperationCanceledException);
+                }
+                else if (ex is TaskCanceledException || ex is OperationCanceledException)
+                {
+                    isTaskCanceled = true;
+                }
+                
+                if (isTaskCanceled)
+                {
+                    LogManager.Log("App", "检测到任务取消异常，这是正常的应用程序关闭行为");
+                }
+                else
+                {
+                    LogManager.LogException("App.UnobservedTaskException", ex);
+                }
+                
                 e.SetObserved();
             };
         }
@@ -119,6 +140,9 @@ public partial class App : Application
         // 注册条件单服务
         services.AddSingleton<ConditionalOrderService>();
         
+        // 注册止损监控服务
+        services.AddSingleton<StopLossMonitorService>();
+        
         // 注册自选合约服务
         services.AddSingleton<FavoriteContractsService>();
 
@@ -131,6 +155,8 @@ public partial class App : Application
         services.AddSingleton<RegisterViewModel>();
         services.AddSingleton<RankingViewModel>();
         services.AddTransient<OrderListViewModel>();
+        services.AddTransient<PushStatisticsViewModel>();
+        services.AddTransient<AccountQueryViewModel>();
 
         // 注册 View
         services.AddTransient<MainWindow>();
@@ -139,6 +165,8 @@ public partial class App : Application
         services.AddTransient<AccountConfigWindow>();
         services.AddTransient<AddAccountWindow>();
         services.AddTransient<RegisterWindow>();
+        services.AddTransient<PushStatisticsWindow>();
+        services.AddTransient<AccountQueryWindow>();
     }
 
     protected override void OnStartup(StartupEventArgs e)
@@ -158,6 +186,18 @@ public partial class App : Application
             catch (Exception serviceEx)
             {
                 LogManager.LogException("App", serviceEx, "启动条件单服务失败");
+            }
+
+            // 启动止损监控服务
+            try
+            {
+                var stopLossMonitorService = _serviceProvider.GetRequiredService<StopLossMonitorService>();
+                stopLossMonitorService.Start();
+                LogManager.Log("App", "止损监控服务已启动");
+            }
+            catch (Exception serviceEx)
+            {
+                LogManager.LogException("App", serviceEx, "启动止损监控服务失败");
             }
 
             // 记录当前ShutdownMode状态
@@ -294,7 +334,7 @@ public partial class App : Application
     }
 
     // 完全重写的主窗口显示方法
-    private void ShowMainWindow()
+    private async void ShowMainWindow()
     {
         LogManager.Log("App", "显示主窗口开始");
         try
@@ -313,6 +353,34 @@ public partial class App : Application
             mainWindow.Show();
             
             LogManager.Log("App", "主窗口显示完成");
+            
+            // 更新状态栏信息
+            try
+            {
+                LogManager.Log("App", "开始更新状态栏信息");
+                
+                // 获取当前登录的用户信息
+                var userService = _serviceProvider.GetRequiredService<IUserService>();
+                var currentUser = await userService.GetCurrentUserAsync();
+                string username = currentUser?.Username ?? "未知用户";
+                
+                // 数据库连接状态
+                var databaseService = _serviceProvider.GetRequiredService<IDatabaseService>();
+                bool isConnected = await databaseService.TestConnectionAsync();
+                string databaseStatus = isConnected ? "已连接" : "未连接";
+                
+                LogManager.Log("App", $"状态栏信息: 用户={username}, 数据库={databaseStatus}");
+                
+                // 更新主窗体状态栏
+                await mainViewModel.UpdateStatusBarInfo(username, databaseStatus, databaseStatus);
+                
+                LogManager.Log("App", "状态栏信息更新完成");
+            }
+            catch (Exception statusEx)
+            {
+                LogManager.LogException("App", statusEx, "更新状态栏信息失败");
+                // 即使状态栏更新失败，也不影响主窗口显示
+            }
         }
         catch (Exception ex)
         {
@@ -326,6 +394,34 @@ public partial class App : Application
         try
         {
             LogManager.Log("App", "OnExit方法开始执行");
+            
+            // 停止监控服务
+            try
+            {
+                LogManager.Log("App", "开始停止监控服务...");
+                
+                var conditionalOrderService = _serviceProvider.GetService<ConditionalOrderService>();
+                if (conditionalOrderService != null)
+                {
+                    conditionalOrderService.Stop();
+                    LogManager.Log("App", "条件单监控服务已停止");
+                }
+                
+                var stopLossMonitorService = _serviceProvider.GetService<StopLossMonitorService>();
+                if (stopLossMonitorService != null)
+                {
+                    stopLossMonitorService.Stop();
+                    LogManager.Log("App", "止损监控服务已停止");
+                }
+                
+                // 给服务一点时间完成清理
+                Task.Delay(500).Wait();
+                LogManager.Log("App", "监控服务清理完成");
+            }
+            catch (Exception serviceEx)
+            {
+                LogManager.LogException("App", serviceEx, "停止监控服务失败");
+            }
             
             // 确保所有数据库连接被关闭
             var databaseService = _serviceProvider.GetService<IDatabaseService>();

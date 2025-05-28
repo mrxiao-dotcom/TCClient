@@ -386,6 +386,10 @@ namespace TCClient.Views
                         viewModel.TriggerPrice = triggerPrice;
                     }
 
+                    // 获取交易方向
+                    string direction = BuyRadioButton.IsChecked == true ? "多" : "空";
+                    viewModel.OrderDirection = direction;
+
                     // 设置止损价格
                     if (decimal.TryParse(StopLossPriceTextBox.Text, out decimal stopLossPrice))
                     {
@@ -735,6 +739,88 @@ namespace TCClient.Views
             }
         }
 
+        /// <summary>
+        /// 增加止损比例1%
+        /// </summary>
+        private void IncreaseStopLossPercentage_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 获取当前止损比例
+                decimal currentPercentage = 0m;
+                if (decimal.TryParse(StopLossPercentageTextBox.Text.TrimEnd('%'), out decimal percentage))
+                {
+                    currentPercentage = percentage / 100; // 转换为小数
+                }
+                else
+                {
+                    // 如果解析失败，使用默认值5%
+                    currentPercentage = 0.05m;
+                }
+
+                // 增加1%
+                decimal newPercentage = currentPercentage + 0.01m;
+                
+                // 限制最大值为50%（防止设置过高的止损比例）
+                if (newPercentage > 0.5m)
+                {
+                    newPercentage = 0.5m;
+                    MessageBox.Show("止损比例不能超过50%", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+
+                // 更新止损设置
+                UpdateStopLossValues(newPercentage: newPercentage);
+                
+                Utils.LogManager.Log("OrderWindow", $"止损比例已增加1% - 新比例: {newPercentage:P2}");
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.LogException("OrderWindow", ex, "增加止损比例失败");
+                MessageBox.Show($"增加止损比例失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// 减少止损比例1%
+        /// </summary>
+        private void DecreaseStopLossPercentage_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 获取当前止损比例
+                decimal currentPercentage = 0m;
+                if (decimal.TryParse(StopLossPercentageTextBox.Text.TrimEnd('%'), out decimal percentage))
+                {
+                    currentPercentage = percentage / 100; // 转换为小数
+                }
+                else
+                {
+                    // 如果解析失败，使用默认值5%
+                    currentPercentage = 0.05m;
+                }
+
+                // 减少1%
+                decimal newPercentage = currentPercentage - 0.01m;
+                
+                // 限制最小值为1%（防止设置过低的止损比例）
+                if (newPercentage < 0.01m)
+                {
+                    newPercentage = 0.01m;
+                    MessageBox.Show("止损比例不能低于1%", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+
+                // 更新止损设置
+                UpdateStopLossValues(newPercentage: newPercentage);
+                
+                Utils.LogManager.Log("OrderWindow", $"止损比例已减少1% - 新比例: {newPercentage:P2}");
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.LogException("OrderWindow", ex, "减少止损比例失败");
+                MessageBox.Show($"减少止损比例失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         private async void CalculateQuantityByStopLoss_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -979,6 +1065,133 @@ namespace TCClient.Views
             if (price < 1m) return "F4";
             if (price < 1000m) return "F2";
             return "F0";
+        }
+
+        /// <summary>
+        /// 方向选择改变事件处理器
+        /// </summary>
+        private void DirectionRadioButton_Checked(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (DataContext is OrderViewModel viewModel && _currentPrice > 0)
+                {
+                    // 获取当前选择的方向
+                    bool isLong = BuyRadioButton.IsChecked == true;
+                    string direction = isLong ? "多" : "空";
+                    
+                    // 更新ViewModel中的方向
+                    viewModel.OrderDirection = direction;
+                    
+                    Utils.LogManager.Log("OrderWindow", $"交易方向已切换为: {direction}");
+                    
+                    // 如果已设置止损金额，根据新方向重新计算止损价格
+                    if (decimal.TryParse(StopLossAmountTextBox.Text, out decimal currentAmount) && currentAmount > 0)
+                    {
+                        Utils.LogManager.Log("OrderWindow", $"根据新方向重新计算止损价格，当前止损金额: {currentAmount}");
+                        UpdateStopLossValues(newAmount: currentAmount);
+                    }
+                    else
+                    {
+                        // 如果没有设置止损金额，使用默认的5%止损比例
+                        decimal defaultPercentage = 0.05m; // 5%
+                        decimal stopLossPrice = isLong ? 
+                            _currentPrice * (1 - defaultPercentage) : 
+                            _currentPrice * (1 + defaultPercentage);
+                            
+                        string priceFormat = GetPriceFormat(stopLossPrice);
+                        
+                        Dispatcher.Invoke(() =>
+                        {
+                            StopLossPercentageTextBox.Text = defaultPercentage.ToString("P2");
+                            StopLossPriceTextBox.Text = stopLossPrice.ToString(priceFormat);
+                            if (string.IsNullOrEmpty(StopLossAmountTextBox.Text))
+                            {
+                                StopLossAmountTextBox.Text = _defaultStopLossAmount.ToString("F2");
+                            }
+                        });
+                        
+                        viewModel.StopLossPrice = stopLossPrice;
+                        
+                        Utils.LogManager.Log("OrderWindow", $"使用默认止损设置 - 方向: {direction}, 止损比例: {defaultPercentage:P2}, 止损价格: {stopLossPrice.ToString(priceFormat)}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.LogException("OrderWindow", ex, "处理方向切换失败");
+            }
+        }
+
+        /// <summary>
+        /// 查看止损单事件处理器
+        /// </summary>
+        private void ViewStopLossOrders_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // 检查窗口是否正在关闭或已关闭
+                if (!IsLoaded || !IsVisible)
+                {
+                    return;
+                }
+
+                // 获取当前选中的订单
+                var menuItem = sender as MenuItem;
+                var contextMenu = menuItem?.Parent as ContextMenu;
+                var dataGrid = contextMenu?.PlacementTarget as DataGrid;
+                var selectedOrder = dataGrid?.SelectedItem as SimulationOrder;
+
+                if (selectedOrder == null)
+                {
+                    MessageBox.Show("请先选择一个订单", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                // 获取数据库服务
+                var app = System.Windows.Application.Current as App;
+                var databaseService = app?.Services?.GetService(typeof(TCClient.Services.IDatabaseService)) as TCClient.Services.IDatabaseService;
+                var logger = app?.Services?.GetService(typeof(Microsoft.Extensions.Logging.ILogger<StopLossOrdersWindow>)) as Microsoft.Extensions.Logging.ILogger<StopLossOrdersWindow>;
+
+                if (databaseService == null)
+                {
+                    MessageBox.Show("无法获取数据库服务", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                // 再次检查窗口状态，确保在显示对话框前窗口仍然有效
+                if (!IsLoaded || !IsVisible)
+                {
+                    return;
+                }
+
+                // 创建并显示止损单查看窗口
+                var stopLossWindow = new StopLossOrdersWindow(selectedOrder, databaseService, logger)
+                {
+                    Owner = this
+                };
+                
+                // 使用Dispatcher确保在UI线程中显示对话框
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (IsLoaded && IsVisible)
+                        {
+                            stopLossWindow.ShowDialog();
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // 窗口已关闭，忽略此异常
+                    }
+                }));
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.LogException("OrderWindow", ex, "查看止损单失败");
+                MessageBox.Show($"查看止损单失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 } 

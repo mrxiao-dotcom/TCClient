@@ -47,5 +47,13 @@ namespace TCClient.Models
             ConditionalOrderStatus.FAILED => "执行失败",
             _ => Status.ToString()
         };
+
+        // 用于UI显示的方向属性
+        public string DirectionDisplay => Direction?.ToUpper() switch
+        {
+            "BUY" => "多",
+            "SELL" => "空",
+            _ => Direction
+        };
     }
 } 

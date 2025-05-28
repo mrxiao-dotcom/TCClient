@@ -55,7 +55,7 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="订单ID" Binding="{Binding OrderId}" Width="140"/>
                             <DataGridTextColumn Header="合约" Binding="{Binding Contract}" Width="100"/>
-                            <DataGridTextColumn Header="方向" Binding="{Binding Direction}" Width="60"/>
+                            <DataGridTextColumn Header="方向" Binding="{Binding DirectionDisplay}" Width="60"/>
                             <DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="60"/>
                             <DataGridTextColumn Header="开仓价格" Binding="{Binding EntryPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
                             <DataGridTextColumn Header="当前价格" Binding="{Binding CurrentPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>
@@ -104,7 +104,7 @@
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
                             <DataGridTextColumn Header="交易对" Binding="{Binding Symbol}" Width="100"/>
-                            <DataGridTextColumn Header="方向" Binding="{Binding Direction}" Width="60"/>
+                            <DataGridTextColumn Header="方向" Binding="{Binding DirectionDisplay}" Width="60"/>
                             <DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="60"/>
                             <DataGridTextColumn Header="条件类型" Binding="{Binding ConditionTypeDisplay}" Width="100"/>
                             <DataGridTextColumn Header="触发价格" Binding="{Binding TriggerPrice, Converter={StaticResource PriceFormatConverter}}" Width="100"/>

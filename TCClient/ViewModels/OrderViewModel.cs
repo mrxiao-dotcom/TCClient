@@ -321,17 +321,17 @@ namespace TCClient.ViewModels
         // 总浮动盈亏：所有订单的浮动盈亏之和
         public decimal TotalFloatingPnL => PushSummary?.Orders?.Sum(o => o.FloatingPnL ?? 0m) ?? 0m;
         
-        // 总实际盈亏：所有订单的实际盈亏之和（平仓订单的实际盈亏等于其浮动盈亏）
+        // 总实际盈亏：所有订单的实际盈亏之和
         public decimal TotalRealPnL => PushSummary?.Orders?.Sum(o => 
         {
             if (o.Status?.ToLower() == "closed")
             {
-                // 平仓订单：实际盈亏等于浮动盈亏
+                // 平仓订单：实际盈亏等于最终的浮动盈亏（已实现盈亏）
                 return o.FloatingPnL ?? 0m;
             }
             else
             {
-                // 开仓订单：使用原有的实际盈亏
+                // 持仓订单：实际盈亏是如果按当前止损价平仓时的盈亏（通常为负值，表示风险）
                 return o.RealProfit ?? 0m;
             }
         }) ?? 0m;
@@ -457,8 +457,16 @@ namespace TCClient.ViewModels
                 
                 if (PushSummary != null)
                 {
-                    _logger.LogInformation("推仓信息加载成功 - 推仓ID: {pushId}, 订单数: {orderCount}, 总浮动盈亏: {totalFloatingPnL:N2}, 总实际盈亏: {totalRealPnL:N2}",
-                        PushSummary.PushId, PushSummary.Orders?.Count ?? 0, PushSummary.Orders?.Sum(o => o.FloatingPnL ?? 0m), PushSummary.Orders?.Sum(o => o.RealProfit ?? 0m));
+                    _logger.LogInformation("推仓信息加载成功 - 推仓ID: {pushId}, 状态: {status}, 订单数: {orderCount}, 总浮动盈亏: {totalFloatingPnL:N2}, 总实际盈亏: {totalRealPnL:N2}",
+                        PushSummary.PushId, PushSummary.Status, PushSummary.Orders?.Count ?? 0, PushSummary.Orders?.Sum(o => o.FloatingPnL ?? 0m), PushSummary.Orders?.Sum(o => o.RealProfit ?? 0m));
+
+                    // 检查推仓状态，如果已完结则重置界面
+                    if (PushSummary.Status?.ToLower() == "closed")
+                    {
+                        _logger.LogInformation("推仓已完结，重置界面显示");
+                        await ResetPushSummaryDisplay();
+                        return;
+                    }
 
                     // 更新持仓订单列表
                     UpdateRelatedOrders();
@@ -475,6 +483,45 @@ namespace TCClient.ViewModels
             {
                 _logger.LogError(ex, "加载推仓信息失败");
                 RelatedOrders.Clear();
+            }
+        }
+
+        /// <summary>
+        /// 重置推仓信息显示
+        /// </summary>
+        private async Task ResetPushSummaryDisplay()
+        {
+            try
+            {
+                _logger.LogInformation("开始重置推仓信息显示");
+                
+                // 清空推仓信息
+                PushSummary = null;
+                RelatedOrders.Clear();
+                
+                // 更新状态显示
+                CurrentPositionStatus = "无持仓";
+                
+                // 触发所有相关属性的更新通知
+                OnPropertyChanged(nameof(PushSummary));
+                OnPropertyChanged(nameof(HasOpenPush));
+                OnPropertyChanged(nameof(HasOpenPositions));
+                OnPropertyChanged(nameof(OpenOrders));
+                OnPropertyChanged(nameof(DisplayTotalOrderCount));
+                OnPropertyChanged(nameof(DisplayOpenOrderCount));
+                OnPropertyChanged(nameof(DisplayClosedOrderCount));
+                OnPropertyChanged(nameof(TotalFloatingPnL));
+                OnPropertyChanged(nameof(TotalRealPnL));
+                OnPropertyChanged(nameof(AvailableRiskAmount));
+                OnPropertyChanged(nameof(AvailableRiskAmountFormula));
+                OnPropertyChanged(nameof(RelatedOrders));
+                OnPropertyChanged(nameof(CurrentPositionStatus));
+                
+                _logger.LogInformation("推仓信息显示重置完成");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "重置推仓信息显示失败");
             }
         }
 
@@ -697,10 +744,10 @@ namespace TCClient.ViewModels
 
                     if (order.Direction?.ToLower() == "buy")
                     {
-                        // 多单：浮动盈亏 = (最新价 - 开仓价) * 数量
-                        floatingPnL = (latestPrice - order.EntryPrice) * quantity;
-                        // 多单：实际盈亏 = (止损价 - 开仓价) * 数量（止损时的亏损金额，通常为负值）
-                        realPnL = (order.InitialStopLoss - order.EntryPrice) * quantity;
+                        // 多单：浮动盈亏 = (最新价 - 开仓价) * 数量 * 合约面值
+                        floatingPnL = (latestPrice - order.EntryPrice) * quantity * order.ContractSize;
+                        // 多单：实际盈亏 = (当前止损价 - 开仓价) * 数量 * 合约面值（如果触发止损时的盈亏）
+                        realPnL = (order.CurrentStopLoss - order.EntryPrice) * quantity * order.ContractSize;
                         
                         // 更新最高价格：对于多单，记录开仓以来的最高价格
                         if (order.HighestPrice == null || latestPrice > order.HighestPrice)
@@ -718,10 +765,10 @@ namespace TCClient.ViewModels
                     }
                     else if (order.Direction?.ToLower() == "sell")
                     {
-                        // 空单：浮动盈亏 = (开仓价 - 最新价) * 数量
-                        floatingPnL = (order.EntryPrice - latestPrice) * quantity;
-                        // 空单：实际盈亏 = (开仓价 - 止损价) * 数量（止损时的亏损金额，通常为负值）
-                        realPnL = (order.EntryPrice - order.InitialStopLoss) * quantity;
+                        // 空单：浮动盈亏 = (开仓价 - 最新价) * 数量 * 合约面值
+                        floatingPnL = (order.EntryPrice - latestPrice) * quantity * order.ContractSize;
+                        // 空单：实际盈亏 = (开仓价 - 当前止损价) * 数量 * 合约面值（如果触发止损时的盈亏）
+                        realPnL = (order.EntryPrice - order.CurrentStopLoss) * quantity * order.ContractSize;
                         
                         // 更新最高价格：对于空单，记录开仓以来的最低价格（对空单来说最低价格是最有利的）
                         if (order.HighestPrice == null || latestPrice < order.HighestPrice)
@@ -914,6 +961,11 @@ namespace TCClient.ViewModels
                 // 下单成功后刷新推仓信息
                 await LoadPushSummaryInfo();
                 
+                // 触发界面刷新
+                OnPropertyChanged(nameof(PushSummary));
+                OnPropertyChanged(nameof(HasOpenPush));
+                OnPropertyChanged(nameof(HasOpenPositions));
+                
                 // 下单成功
                 return true;
             }
@@ -1030,26 +1082,58 @@ namespace TCClient.ViewModels
         {
             try
             {
-                if (string.IsNullOrEmpty(ContractName))
+                            if (string.IsNullOrEmpty(ContractName))
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    _messageService.ShowMessage("请先选择合约", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
+                    try
+                    {
+                        _messageService.ShowMessage("请先选择合约", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "显示提示消息时发生错误");
+                    }
+                });
+                return;
+            }
 
                 if (PushSummary?.Orders == null || !PushSummary.Orders.Any(o => o.Status.ToLower() == "open"))
                 {
-                    _messageService.ShowMessage("当前合约没有持仓订单", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            _messageService.ShowMessage("当前合约没有持仓订单", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "显示提示消息时发生错误");
+                        }
+                    });
                     return;
                 }
 
                 var openOrders = PushSummary.Orders.Where(o => o.Status.ToLower() == "open").ToList();
-                var result = _messageService.ShowMessage(
-                    $"确定要平掉 {ContractName} 合约的所有 {openOrders.Count} 个持仓订单吗？\n\n" +
-                    $"当前总浮动盈亏：{TotalFloatingPnL:N2} 元\n" +
-                    $"当前总实际盈亏：{TotalRealPnL:N2} 元",
-                    "确认平仓",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question);
+                // 确保确认对话框在UI线程中显示
+                var result = await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    try
+                    {
+                        return _messageService.ShowMessage(
+                            $"确定要平掉 {ContractName} 合约的所有 {openOrders.Count} 个持仓订单吗？\n\n" +
+                            $"当前总浮动盈亏：{TotalFloatingPnL:N2} 元\n" +
+                            $"当前总实际盈亏：{TotalRealPnL:N2} 元",
+                            "确认平仓",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Question);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "显示确认对话框时发生错误");
+                        return MessageBoxResult.No; // 默认返回No，取消操作
+                    }
+                });
 
                 if (result != MessageBoxResult.Yes)
                 {
@@ -1076,13 +1160,13 @@ namespace TCClient.ViewModels
 
                         if (order.Direction?.ToLower() == "buy")
                         {
-                            // 多单：浮动盈亏 = (平仓价 - 开仓价) * 数量
-                            finalFloatingPnL = (closePrice - order.EntryPrice) * quantity;
+                            // 多单：浮动盈亏 = (平仓价 - 开仓价) * 数量 * 合约面值
+                            finalFloatingPnL = (closePrice - order.EntryPrice) * quantity * order.ContractSize;
                         }
                         else if (order.Direction?.ToLower() == "sell")
                         {
-                            // 空单：浮动盈亏 = (开仓价 - 平仓价) * 数量
-                            finalFloatingPnL = (order.EntryPrice - closePrice) * quantity;
+                            // 空单：浮动盈亏 = (开仓价 - 平仓价) * 数量 * 合约面值
+                            finalFloatingPnL = (order.EntryPrice - closePrice) * quantity * order.ContractSize;
                         }
 
                         // 更新订单状态为已平仓
@@ -1092,10 +1176,14 @@ namespace TCClient.ViewModels
                         order.CurrentPrice = closePrice;
                         order.FloatingPnL = finalFloatingPnL;
                         order.RealProfit = finalFloatingPnL; // 平仓后，实际盈亏等于浮动盈亏
+                        order.CloseType = "manual"; // 标记为手动平仓
                         order.LastUpdateTime = closeTime;
 
                         // 更新数据库中的订单
                         await _databaseService.UpdateSimulationOrderAsync(order);
+
+                        // 取消该订单相关的所有委托单
+                        await CancelRelatedOrdersAsync(order.Id, order.Contract);
 
                         _logger.LogInformation("订单 {orderId} 平仓成功 - 平仓价: {closePrice}, 最终盈亏: {finalPnL:N2}", 
                             order.OrderId, closePrice, finalFloatingPnL);
@@ -1136,15 +1224,26 @@ namespace TCClient.ViewModels
                 // 刷新推仓信息
                 await LoadPushSummaryInfo();
 
-                // 显示结果
-                if (failCount == 0)
+                // 显示结果 - 使用Dispatcher确保在UI线程中执行
+                await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    _messageService.ShowMessage($"平仓完成！成功平仓 {successCount} 个订单", "平仓成功", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-                else
-                {
-                    _messageService.ShowMessage($"平仓完成！成功 {successCount} 个，失败 {failCount} 个", "平仓结果", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+                    try
+                    {
+                        if (failCount == 0)
+                        {
+                            _messageService.ShowMessage($"平仓完成！成功平仓 {successCount} 个订单", "平仓成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                        }
+                        else
+                        {
+                            _messageService.ShowMessage($"平仓完成！成功 {successCount} 个，失败 {failCount} 个", "平仓结果", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "显示平仓结果消息时发生错误");
+                        // 如果UI已关闭，不再显示消息
+                    }
+                });
 
                 _logger.LogInformation("一键平仓完成 - 成功: {successCount}, 失败: {failCount}", successCount, failCount);
                 Utils.LogManager.Log("OrderViewModel", $"一键平仓完成 - 成功: {successCount}, 失败: {failCount}");
@@ -1154,6 +1253,95 @@ namespace TCClient.ViewModels
                 _logger.LogError(ex, "一键平仓失败");
                 Utils.LogManager.LogException("OrderViewModel", ex, "一键平仓失败");
                 _messageService.ShowMessage($"平仓失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// 取消指定订单相关的所有委托单（条件单和止损止盈单）
+        /// </summary>
+        /// <param name="simulationOrderId">模拟订单ID</param>
+        /// <param name="contract">合约名称</param>
+        private async Task CancelRelatedOrdersAsync(long simulationOrderId, string contract)
+        {
+            try
+            {
+                _logger.LogInformation("开始取消订单 {orderId} 相关的委托单", simulationOrderId);
+                Utils.LogManager.Log("OrderViewModel", $"开始取消订单 {simulationOrderId} 相关的委托单");
+
+                var accountId = TCClient.Utils.AppSession.CurrentAccountId;
+                int cancelledCount = 0;
+
+                // 1. 取消相关的条件单（按合约和账户查找等待状态的条件单）
+                try
+                {
+                    var conditionalOrders = await _databaseService.GetConditionalOrdersAsync(accountId);
+                    var waitingConditionalOrders = conditionalOrders
+                        .Where(o => o.Symbol == contract && o.Status == ConditionalOrderStatus.WAITING)
+                        .ToList();
+
+                    foreach (var conditionalOrder in waitingConditionalOrders)
+                    {
+                        try
+                        {
+                            await _databaseService.CancelConditionalOrderAsync(conditionalOrder.Id);
+                            cancelledCount++;
+                            _logger.LogInformation("取消条件单成功 - ID: {id}", conditionalOrder.Id);
+                            Utils.LogManager.Log("OrderViewModel", $"取消条件单成功 - ID: {conditionalOrder.Id}");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "取消条件单失败 - ID: {id}", conditionalOrder.Id);
+                            Utils.LogManager.LogException("OrderViewModel", ex, $"取消条件单失败 - ID: {conditionalOrder.Id}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "查询或取消条件单时发生错误");
+                    Utils.LogManager.LogException("OrderViewModel", ex, "查询或取消条件单时发生错误");
+                }
+
+                // 2. 取消相关的止损止盈单（按模拟订单ID查找等待状态的止损止盈单）
+                try
+                {
+                    var stopTakeOrders = await _databaseService.GetStopTakeOrdersAsync(accountId);
+                    var waitingStopTakeOrders = stopTakeOrders
+                        .Where(o => o.SimulationOrderId == simulationOrderId && o.Status == "WAITING")
+                        .ToList();
+
+                    foreach (var stopTakeOrder in waitingStopTakeOrders)
+                    {
+                        try
+                        {
+                            await _databaseService.CancelStopTakeOrderAsync(stopTakeOrder.Id);
+                            cancelledCount++;
+                            _logger.LogInformation("取消止损止盈单成功 - ID: {id}, 类型: {type}", 
+                                stopTakeOrder.Id, stopTakeOrder.OrderType);
+                            Utils.LogManager.Log("OrderViewModel", 
+                                $"取消止损止盈单成功 - ID: {stopTakeOrder.Id}, 类型: {stopTakeOrder.OrderType}");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "取消止损止盈单失败 - ID: {id}", stopTakeOrder.Id);
+                            Utils.LogManager.LogException("OrderViewModel", ex, $"取消止损止盈单失败 - ID: {stopTakeOrder.Id}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "查询或取消止损止盈单时发生错误");
+                    Utils.LogManager.LogException("OrderViewModel", ex, "查询或取消止损止盈单时发生错误");
+                }
+
+                _logger.LogInformation("订单 {orderId} 相关委托单取消完成 - 共取消 {count} 个委托单", 
+                    simulationOrderId, cancelledCount);
+                Utils.LogManager.Log("OrderViewModel", 
+                    $"订单 {simulationOrderId} 相关委托单取消完成 - 共取消 {cancelledCount} 个委托单");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "取消订单 {orderId} 相关委托单时发生错误", simulationOrderId);
+                Utils.LogManager.LogException("OrderViewModel", ex, $"取消订单 {simulationOrderId} 相关委托单时发生错误");
             }
         }
 
@@ -1192,8 +1380,8 @@ namespace TCClient.ViewModels
             bool isLong = order.Direction?.ToLower() == "buy";
             decimal quantity = (decimal)order.Quantity;
             decimal currentFloatingPnL = isLong ? 
-                (currentPrice - order.EntryPrice) * quantity : 
-                (order.EntryPrice - currentPrice) * quantity;
+                (currentPrice - order.EntryPrice) * quantity * order.ContractSize : 
+                (order.EntryPrice - currentPrice) * quantity * order.ContractSize;
 
             // 策略1：回撤止盈策略
             // 当价格从最高点回撤超过一定比例时，考虑止盈
@@ -1288,48 +1476,62 @@ namespace TCClient.ViewModels
         {
             try
             {
-                // 从数据库获取账户信息
                 var accountId = TCClient.Utils.AppSession.CurrentAccountId;
-                var account = await _databaseService.GetTradingAccountByIdAsync(accountId);
                 
-                if (account != null)
+                // 首先尝试从account_balances表获取余额信息，如果没有则从trading_accounts表获取
+                var accountBalance = await _databaseService.GetAccountBalanceAsync(accountId);
+                
+                if (accountBalance != null)
                 {
                     // 计算单笔风险金和公式
                     decimal singleRisk = 0m;
                     string formula = "";
                     
-                    if (account.OpportunityCount > 0)
+                    // 如果是从trading_accounts表获取的数据，OpportunityCount会有值
+                    // 如果是从account_balances表获取的数据，需要单独获取OpportunityCount
+                    int opportunityCount = accountBalance.OpportunityCount;
+                    if (opportunityCount == 0 && accountBalance.Source == "account_balances")
                     {
-                        singleRisk = account.Equity / account.OpportunityCount;
-                        formula = $"{account.Equity:N2} ÷ {account.OpportunityCount} = {singleRisk:N2}";
+                        // 从trading_accounts表获取风险次数
+                        var account = await _databaseService.GetTradingAccountByIdAsync(accountId);
+                        if (account != null)
+                        {
+                            opportunityCount = account.OpportunityCount;
+                        }
+                    }
+                    
+                    if (opportunityCount > 0)
+                    {
+                        singleRisk = accountBalance.TotalEquity / opportunityCount;
+                        formula = $"{accountBalance.TotalEquity:N2} ÷ {opportunityCount} = {singleRisk:N2}";
                     }
                     else
                     {
-                        formula = $"{account.Equity:N2} ÷ 0 = 无法计算（风险次数为0）";
+                        formula = $"{accountBalance.TotalEquity:N2} ÷ 0 = 无法计算（风险次数为0）";
                     }
 
                     // 使用Dispatcher确保在UI线程上更新属性
                     await Application.Current.Dispatcher.InvokeAsync(() =>
                     {
-                        // 原有属性
-                        TotalEquity = account.Equity;
-                        AvailableBalance = account.Equity; // 暂时使用总权益作为可用余额
-                        UnrealizedPnL = 0m; // 暂时设为0，后续可以从数据库获取
-                        PositionMargin = 0m; // 暂时设为0，后续可以从数据库获取
+                        // 使用账户余额信息更新属性
+                        TotalEquity = accountBalance.TotalEquity;
+                        AvailableBalance = accountBalance.AvailableBalance;
+                        UnrealizedPnL = accountBalance.UnrealizedPnL;
+                        PositionMargin = accountBalance.MarginBalance - accountBalance.AvailableBalance; // 计算已用保证金
                         
                         // 新增属性
-                        RealTimeEquity = account.Equity;
-                        OpportunityCount = account.OpportunityCount;
+                        RealTimeEquity = accountBalance.TotalEquity;
+                        OpportunityCount = opportunityCount;
                         SingleRiskAmount = singleRisk;
                         RiskCalculationFormula = formula;
                     });
 
-                    _logger.LogInformation("已更新账户信息 - 实时权益: {equity:N2}, 风险次数: {count}, 单笔风险金: {singleRisk:N2}", 
-                        account.Equity, account.OpportunityCount, singleRisk);
+                    _logger.LogInformation("已更新账户信息 - 数据来源: {source}, 实时权益: {equity:N2}, 可用余额: {available:N2}, 未实现盈亏: {pnl:N2}, 风险次数: {count}, 单笔风险金: {singleRisk:N2}", 
+                        accountBalance.Source, accountBalance.TotalEquity, accountBalance.AvailableBalance, accountBalance.UnrealizedPnL, opportunityCount, singleRisk);
                 }
                 else
                 {
-                    _logger.LogInformation("未找到ID为{accountId}的交易账户", accountId);
+                    _logger.LogInformation("未找到ID为{accountId}的账户余额信息", accountId);
                 }
             }
             catch (Exception ex)

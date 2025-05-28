@@ -8,6 +8,7 @@ namespace TCClient.Models
         public long PushId { get; set; }
         public string Contract { get; set; }
         public DateTime CreateTime { get; set; }
+        public DateTime? CloseTime { get; set; }
         public string Status { get; set; }
         public decimal TotalFloatingPnL { get; set; }  // 总浮动盈亏
         public decimal TotalRealPnL { get; set; }      // 总实际盈亏（按止损价计算）
