@@ -642,8 +642,21 @@ namespace TCClient.ViewModels
 
                 _logger.LogInformation("启动价格更新定时器 - 合约: {contractName}", ContractName);
 
+                // 首先测试网络连接
+                if (exchangeService is BinanceExchangeService binanceService)
+                {
+                    var connectionTest = await binanceService.TestConnectionAsync();
+                    if (!connectionTest)
+                    {
+                        _logger.LogWarning("网络连接测试失败，但继续尝试获取价格数据");
+                    }
+                }
+
                 await Task.Run(async () =>
                 {
+                    int consecutiveErrors = 0;
+                    const int maxConsecutiveErrors = 5;
+                    
                     try
                     {
                         while (!token.IsCancellationRequested)
@@ -664,10 +677,14 @@ namespace TCClient.ViewModels
                                         LatestPrice = tick.LastPrice;
                                         await UpdatePriceAndPushInfo(tick.LastPrice, token);
                                         _logger.LogInformation("更新价格：{contractName} = {latestPrice}", ContractName, LatestPrice);
+                                        
+                                        // 重置错误计数
+                                        consecutiveErrors = 0;
                                     }
                                     else
                                     {
                                         _logger.LogInformation("未找到合约 {contractName} 的价格数据", GetFullContractName());
+                                        consecutiveErrors++;
                                     }
                                     
                                     // 更新K线图控件的自定义合约列表价格
@@ -676,20 +693,41 @@ namespace TCClient.ViewModels
                                 else
                                 {
                                     _logger.LogInformation("获取到空的 tick 数据");
+                                    consecutiveErrors++;
                                 }
+                            }
+                            catch (TimeoutException ex)
+                            {
+                                _logger.LogWarning("获取价格超时: {message}", ex.Message);
+                                consecutiveErrors++;
+                            }
+                            catch (TaskCanceledException ex)
+                            {
+                                _logger.LogWarning("获取价格被取消: {message}", ex.Message);
+                                consecutiveErrors++;
                             }
                             catch (Exception ex)
                             {
                                 _logger.LogError(ex, "获取价格时出错");
+                                consecutiveErrors++;
                             }
                             
-                            // 每秒更新一次价格
-                            await Task.Delay(1000, token);
+                            // 如果连续错误次数过多，增加延迟时间
+                            int delayMs = 1000; // 默认1秒
+                            if (consecutiveErrors >= maxConsecutiveErrors)
+                            {
+                                delayMs = 5000; // 连续错误时延长到5秒
+                                _logger.LogWarning("连续获取价格失败 {count} 次，延长更新间隔到 {delay}ms", consecutiveErrors, delayMs);
+                            }
+                            
+                            // 等待指定时间后继续
+                            await Task.Delay(delayMs, token);
                         }
                     }
                     catch (OperationCanceledException)
                     {
                         // 操作被取消，正常退出
+                        _logger.LogInformation("价格更新定时器已取消");
                     }
                     catch (Exception ex)
                     {
@@ -1353,11 +1391,11 @@ namespace TCClient.ViewModels
         {
             try
             {
-                // 通过KLineChartControl属性更新价格
-                if (KLineChartControl != null)
-                {
-                    KLineChartControl.UpdateContractPrices(tickers);
-                }
+                // 通过KLineChartControl属性更新价格 - 删除已不存在的方法调用
+                // if (KLineChartControl != null)
+                // {
+                //     KLineChartControl.UpdateContractPrices(tickers);
+                // }
             }
             catch (Exception ex)
             {

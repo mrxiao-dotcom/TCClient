@@ -1,0 +1,102 @@
+<Window x:Class="TCClient.Views.NetworkDiagnosticWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="网络连接诊断" Height="600" Width="800"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize">
+    
+    <Window.Resources>
+        <!-- 样式定义 -->
+        <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        
+        <Style x:Key="StatusTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+        
+        <Style x:Key="SuccessTextStyle" TargetType="TextBlock" BasedOn="{StaticResource StatusTextStyle}">
+            <Setter Property="Foreground" Value="Green"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        
+        <Style x:Key="ErrorTextStyle" TargetType="TextBlock" BasedOn="{StaticResource StatusTextStyle}">
+            <Setter Property="Foreground" Value="Red"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        
+        <Style x:Key="WarningTextStyle" TargetType="TextBlock" BasedOn="{StaticResource StatusTextStyle}">
+            <Setter Property="Foreground" Value="Orange"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+    </Window.Resources>
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- 标题区域 -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
+            <TextBlock Text="🔍" FontSize="24" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <StackPanel>
+                <TextBlock Text="网络连接诊断工具" Style="{StaticResource HeaderTextStyle}"/>
+                <TextBlock Text="检测与Binance API的网络连接状况并提供解决建议" 
+                           FontSize="12" Foreground="Gray"/>
+            </StackPanel>
+        </StackPanel>
+        
+        <!-- 诊断结果区域 -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,20">
+            <StackPanel x:Name="DiagnosticResultsPanel">
+                <TextBlock Text="点击'开始诊断'按钮开始网络连接检测..." 
+                           Style="{StaticResource StatusTextStyle}" 
+                           Foreground="Gray"/>
+            </StackPanel>
+        </ScrollViewer>
+        
+        <!-- 进度条 -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,20">
+            <TextBlock x:Name="ProgressTextBlock" Text="准备就绪" 
+                       Style="{StaticResource StatusTextStyle}" 
+                       HorizontalAlignment="Center"/>
+            <ProgressBar x:Name="DiagnosticProgressBar" 
+                         Height="20" 
+                         Minimum="0" Maximum="100" Value="0"
+                         Margin="0,5,0,0"/>
+        </StackPanel>
+        
+        <!-- 按钮区域 -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center">
+            <Button x:Name="StartDiagnosticButton" 
+                    Content="🔍 开始诊断" 
+                    Width="120" Height="35" 
+                    Margin="0,0,10,0"
+                    Click="StartDiagnosticButton_Click"/>
+            
+            <Button x:Name="RetryConnectionButton" 
+                    Content="🔄 重试连接" 
+                    Width="120" Height="35" 
+                    Margin="0,0,10,0"
+                    IsEnabled="False"
+                    Click="RetryConnectionButton_Click"/>
+            
+            <Button x:Name="OpenNetworkSettingsButton" 
+                    Content="🔧 网络设置" 
+                    Width="120" Height="35" 
+                    Margin="0,0,10,0"
+                    Click="OpenNetworkSettingsButton_Click"/>
+            
+            <Button x:Name="CloseButton" 
+                    Content="关闭" 
+                    Width="80" Height="35" 
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window> 

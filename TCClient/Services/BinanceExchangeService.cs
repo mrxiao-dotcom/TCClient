@@ -21,19 +21,28 @@ namespace TCClient.Services
     public class BinanceExchangeService : IExchangeService, IDisposable
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://fapi.binance.com";
+        private readonly string _baseUrl;
         private readonly string _apiKey;
         private readonly string _apiSecret;
         private bool _isDisposed;
         private const int MaxRetries = 3;
         private const int RetryDelayMs = 1000;
-        private const int RequestTimeoutMs = 15000; // 增加到15秒
+        private const int RequestTimeoutMs = 30000; // 增加到30秒
         private CancellationTokenSource _globalCts;
         private readonly ILogger<BinanceExchangeService> _logger;
         private readonly SemaphoreSlim _requestSemaphore = new SemaphoreSlim(1, 1);
         private readonly Random _random = new Random();
-        private const int BASE_TIMEOUT = 15; // 增加基础超时时间到15秒
-        private const int MAX_TIMEOUT = 30; // 增加最大超时时间到30秒
+        private const int BASE_TIMEOUT = 30; // 增加基础超时时间到30秒
+        private const int MAX_TIMEOUT = 60; // 增加最大超时时间到60秒
+        
+        // 备用API端点配置
+        private static readonly string[] _alternativeBaseUrls = {
+            "https://fapi.binance.com",
+            "https://fapi1.binance.com",
+            "https://fapi2.binance.com",
+            "https://fapi3.binance.com"
+        };
+        private int _currentBaseUrlIndex = 0;
         
         // 请求频率控制
         private static readonly Dictionary<string, DateTime> _lastRequestTimes = new Dictionary<string, DateTime>();
@@ -51,22 +60,14 @@ namespace TCClient.Services
             _logger = logger;
             _apiKey = apiKey;
             _apiSecret = apiSecret;
+            _baseUrl = _alternativeBaseUrls[0]; // 默认使用第一个端点
             
-            // 配置HttpClient
-            var handler = new System.Net.Http.SocketsHttpHandler
-            {
-                PooledConnectionLifetime = TimeSpan.FromMinutes(10), // 连接池生命周期
-                MaxConnectionsPerServer = 10, // 每个服务器的最大连接数
-                EnableMultipleHttp2Connections = true, // 启用多个HTTP/2连接
-                KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests, // 保持连接活跃
-                KeepAlivePingDelay = TimeSpan.FromSeconds(30), // 保持连接ping延迟
-                KeepAlivePingTimeout = TimeSpan.FromSeconds(5), // 保持连接ping超时
-                ConnectTimeout = TimeSpan.FromSeconds(5) // 连接超时
-            };
+            // 配置HttpClient with proxy support
+            var handler = CreateHttpHandler();
 
             _httpClient = new HttpClient(handler)
             {
-                BaseAddress = new Uri("https://fapi.binance.com"),
+                BaseAddress = new Uri(_baseUrl),
                 Timeout = TimeSpan.FromSeconds(BASE_TIMEOUT)
             };
 
@@ -81,8 +82,116 @@ namespace TCClient.Services
 
             Utils.LogManager.Log("BinanceExchange", "=== 初始化币安交易所服务 ===");
             Utils.LogManager.Log("BinanceExchange", $"API密钥: {(string.IsNullOrEmpty(_apiKey) ? "未设置" : "已设置")}");
+            Utils.LogManager.Log("BinanceExchange", $"当前API端点: {_baseUrl}");
             Utils.LogManager.Log("BinanceExchange", "HTTP客户端初始化完成");
             _globalCts = new CancellationTokenSource();
+        }
+
+        private SocketsHttpHandler CreateHttpHandler()
+        {
+            var handler = new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(15), // 增加连接池生命周期
+                MaxConnectionsPerServer = 20, // 增加每个服务器的最大连接数
+                EnableMultipleHttp2Connections = true, // 启用多个HTTP/2连接
+                KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests, // 保持连接活跃
+                KeepAlivePingDelay = TimeSpan.FromSeconds(60), // 增加保持连接ping延迟
+                KeepAlivePingTimeout = TimeSpan.FromSeconds(10), // 增加保持连接ping超时
+                ConnectTimeout = TimeSpan.FromSeconds(15), // 增加连接超时
+                ResponseDrainTimeout = TimeSpan.FromSeconds(10), // 增加响应排空超时
+                RequestHeaderEncodingSelector = (name, request) => System.Text.Encoding.UTF8
+            };
+
+            // 检查是否需要配置代理
+            var proxyUrl = Environment.GetEnvironmentVariable("HTTP_PROXY") ?? Environment.GetEnvironmentVariable("HTTPS_PROXY");
+            if (!string.IsNullOrEmpty(proxyUrl))
+            {
+                Utils.LogManager.Log("BinanceExchange", $"检测到代理配置: {proxyUrl}");
+                try
+                {
+                    var proxy = new WebProxy(proxyUrl);
+                    handler.Proxy = proxy;
+                    handler.UseProxy = true;
+                    Utils.LogManager.Log("BinanceExchange", "代理配置成功");
+                }
+                catch (Exception ex)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"代理配置失败: {ex.Message}");
+                }
+            }
+            else
+            {
+                // 如果没有代理配置，尝试使用系统代理
+                handler.UseProxy = true;
+                handler.Proxy = WebRequest.GetSystemWebProxy();
+            }
+
+            return handler;
+        }
+
+        private async Task<bool> TryNextBaseUrl()
+        {
+            _currentBaseUrlIndex = (_currentBaseUrlIndex + 1) % _alternativeBaseUrls.Length;
+            var newBaseUrl = _alternativeBaseUrls[_currentBaseUrlIndex];
+            
+            Utils.LogManager.Log("BinanceExchange", $"切换到备用API端点: {newBaseUrl}");
+            
+            // 测试新端点是否可用
+            try
+            {
+                var handler = CreateHttpHandler();
+                using var testHttpClient = new HttpClient(handler)
+                {
+                    BaseAddress = new Uri(newBaseUrl),
+                    Timeout = TimeSpan.FromSeconds(BASE_TIMEOUT)
+                };
+                
+                // 设置默认请求头
+                testHttpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                testHttpClient.DefaultRequestHeaders.Add("User-Agent", "TCClient/1.0");
+
+                if (!string.IsNullOrEmpty(_apiKey))
+                {
+                    testHttpClient.DefaultRequestHeaders.Add("X-MBX-APIKEY", _apiKey);
+                }
+
+                using var testResponse = await testHttpClient.GetAsync("/fapi/v1/ping", CancellationToken.None);
+                if (testResponse.IsSuccessStatusCode)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"备用端点 {newBaseUrl} 连接成功");
+                    
+                    // 更新当前HttpClient
+                    _httpClient?.Dispose();
+                    var newHandler = CreateHttpHandler();
+                    var newHttpClient = new HttpClient(newHandler)
+                    {
+                        BaseAddress = new Uri(newBaseUrl),
+                        Timeout = TimeSpan.FromSeconds(BASE_TIMEOUT)
+                    };
+                    
+                    // 设置默认请求头
+                    newHttpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                    newHttpClient.DefaultRequestHeaders.Add("User-Agent", "TCClient/1.0");
+
+                    if (!string.IsNullOrEmpty(_apiKey))
+                    {
+                        newHttpClient.DefaultRequestHeaders.Add("X-MBX-APIKEY", _apiKey);
+                    }
+                    
+                    // 使用反射更新私有字段
+                    var httpClientField = typeof(BinanceExchangeService).GetField("_httpClient", 
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    httpClientField?.SetValue(this, newHttpClient);
+                    
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.Log("BinanceExchange", $"备用端点 {newBaseUrl} 连接失败: {ex.Message}");
+            }
+            
+            return false;
         }
 
         private string GenerateSignature(string queryString)
@@ -134,7 +243,7 @@ namespace TCClient.Services
             await RateLimitAsync(endpoint);
 
             // 为每个请求创建独立的CancellationToken，避免全局取消影响其他请求
-            using var requestCts = new CancellationTokenSource(TimeSpan.FromSeconds(BASE_TIMEOUT + retryCount * 5));
+            using var requestCts = new CancellationTokenSource(TimeSpan.FromSeconds(BASE_TIMEOUT + retryCount * 10)); // 增加重试时的超时时间
             var requestToken = requestCts.Token;
 
             try
@@ -249,6 +358,28 @@ namespace TCClient.Services
                     {
                         Utils.LogManager.Log("BinanceExchange", $"请求失败 - 状态码: {response.StatusCode}, 内容: {content}");
                         
+                        // 特殊处理地理位置限制错误
+                        if (response.StatusCode == HttpStatusCode.UnavailableForLegalReasons)
+                        {
+                            Utils.LogManager.Log("BinanceExchange", "检测到地理位置限制错误，尝试切换备用API端点");
+                            
+                            if (retryCount < MaxRetries)
+                            {
+                                // 尝试切换到下一个备用端点
+                                if (await TryNextBaseUrl())
+                                {
+                                    Utils.LogManager.Log("BinanceExchange", "成功切换到备用端点，重新发送请求");
+                                    return await SendRequestAsync<T>(endpoint, method, parameters, requireSignature, retryCount + 1);
+                                }
+                                else
+                                {
+                                    Utils.LogManager.Log("BinanceExchange", "备用端点也无法访问，建议配置代理服务器");
+                                }
+                            }
+                            
+                            throw new HttpRequestException($"地理位置限制错误，所有API端点均无法访问。建议配置代理服务器。错误详情: {content}");
+                        }
+                        
                         // 特殊处理429错误（频率限制）
                         if (response.StatusCode == HttpStatusCode.TooManyRequests)
                         {
@@ -278,14 +409,34 @@ namespace TCClient.Services
                     }
                     
                     Utils.LogManager.Log("BinanceExchange", $"请求超时 (重试 {retryCount + 1}/{MaxRetries}): {ex.Message}");
+                    Utils.LogManager.Log("BinanceExchange", $"异常堆栈: {ex.StackTrace}");
+                    
+                    // 尝试切换到下一个API端点
+                    if (await TryNextBaseUrl())
+                    {
+                        Utils.LogManager.Log("BinanceExchange", "已切换到备用API端点");
+                    }
+                    
                     var delayMs = RetryDelayMs * (retryCount + 1);
+                    Utils.LogManager.Log("BinanceExchange", $"等待 {delayMs}ms 后重试");
                     await Task.Delay(delayMs, CancellationToken.None); // 使用None避免取消
                     return await SendRequestAsync<T>(endpoint, method, parameters, requireSignature, retryCount + 1);
                 }
                 catch (TaskCanceledException ex) when (ex.CancellationToken == requestToken)
                 {
                     Utils.LogManager.Log("BinanceExchange", $"请求最终超时，已达到最大重试次数: {ex.Message}");
-                    throw new TimeoutException($"请求超时: {endpoint}");
+                    Utils.LogManager.Log("BinanceExchange", $"异常详细信息: {ex}");
+                    
+                    // 记录详细的网络连接问题信息
+                    Utils.LogManager.Log("BinanceExchange", "网络连接问题可能原因:");
+                    Utils.LogManager.Log("BinanceExchange", "1. 网络连接不稳定");
+                    Utils.LogManager.Log("BinanceExchange", "2. DNS解析问题");
+                    Utils.LogManager.Log("BinanceExchange", "3. 防火墙或代理设置问题");
+                    Utils.LogManager.Log("BinanceExchange", "4. Binance API服务器响应慢");
+                    
+                    // 不抛出异常，而是返回默认值，让上层处理
+                    Utils.LogManager.Log("BinanceExchange", "返回默认值，让上层代码处理网络问题");
+                    return default;
                 }
             }
             catch (HttpRequestException ex) when (retryCount < MaxRetries)
@@ -342,7 +493,7 @@ namespace TCClient.Services
                     {
                         // 安全地获取每个值，添加异常处理
                         long time = 0;
-                        double open = 0, high = 0, low = 0, close = 0, volume = 0;
+                        double open = 0, high = 0, low = 0, close = 0, volume = 0, quoteVolume = 0;
                         
                         try { time = k[0].GetInt64(); } catch { time = DateTimeOffset.Now.ToUnixTimeMilliseconds(); }
                         
@@ -351,15 +502,35 @@ namespace TCClient.Services
                         try { low = double.Parse(k[3].GetString() ?? "0"); } catch { }
                         try { close = double.Parse(k[4].GetString() ?? "0"); } catch { }
                         try { volume = double.Parse(k[5].GetString() ?? "0"); } catch { }
+                        try { quoteVolume = double.Parse(k[7].GetString() ?? "0"); } catch { }
+                        
+                        // 改进时间处理，确保日线周期的时间对齐
+                        var klineTime = DateTimeOffset.FromUnixTimeMilliseconds(time).DateTime;
+                        
+                        // 对于日线周期，确保时间对齐到当天的0点（本地时间）
+                        if (interval == "1d")
+                        {
+                            klineTime = klineTime.Date; // 只保留日期部分，时间设为0点
+                            Utils.LogManager.Log("BinanceExchange", $"日线时间对齐: 原始时间={DateTimeOffset.FromUnixTimeMilliseconds(time).DateTime:yyyy-MM-dd HH:mm:ss}, 对齐后={klineTime:yyyy-MM-dd HH:mm:ss}");
+                        }
                         
                         klines.Add(new KLineData
                         {
-                            Time = DateTimeOffset.FromUnixTimeMilliseconds(time).DateTime,
+                            Time = klineTime,
                             Open = open,
                             High = high,
                             Low = low,
                             Close = close,
-                            Volume = (decimal)volume
+                            Volume = (decimal)volume,
+                            // 添加完整的K线数据属性以确保数据完整性
+                            Symbol = formattedSymbol,
+                            OpenTime = klineTime,
+                            CloseTime = interval == "1d" ? klineTime.AddDays(1).AddTicks(-1) : klineTime,
+                            OpenPrice = (decimal)open,
+                            HighPrice = (decimal)high,
+                            LowPrice = (decimal)low,
+                            ClosePrice = (decimal)close,
+                            QuoteVolume = (decimal)quoteVolume // 使用正确的成交额数据
                         });
                     }
                     catch (Exception ex)
@@ -538,7 +709,22 @@ namespace TCClient.Services
                     catch (Exception ex)
                     {
                         Utils.LogManager.Log("BinanceExchange", $"直接获取价格失败: {ex.Message}");
+                        
+                        // 检查是否为网络异常，如果是则显示弹窗
+                        if (Utils.NetworkExceptionHandler.IsNetworkException(ex))
+                        {
+                            Utils.NetworkExceptionHandler.ShowTickerFailureDialog();
+                        }
                     }
+                    
+                    // 网络问题时返回null并记录详细信息
+                    Utils.LogManager.Log("BinanceExchange", $"**ticker** 是 null。");
+                    Utils.LogManager.Log("BinanceExchange", "这通常是由以下原因造成的：");
+                    Utils.LogManager.Log("BinanceExchange", "1. 网络连接问题或超时");
+                    Utils.LogManager.Log("BinanceExchange", "2. Binance API服务器响应慢");
+                    Utils.LogManager.Log("BinanceExchange", "3. 防火墙或代理服务器阻止连接");
+                    Utils.LogManager.Log("BinanceExchange", "4. 本地网络环境不稳定");
+                    Utils.LogManager.Log("BinanceExchange", "建议检查网络连接或稍后重试");
                     
                     return null;
                 }
@@ -571,6 +757,13 @@ namespace TCClient.Services
             {
                 Utils.LogManager.Log("BinanceExchange", $"获取 {symbol} 的行情数据失败: {ex.Message}");
                 Utils.LogManager.Log("BinanceExchange", $"异常类型: {ex.GetType().Name}");
+                
+                // 检查是否为网络异常，如果是则显示弹窗
+                if (Utils.NetworkExceptionHandler.IsNetworkException(ex))
+                {
+                    Utils.NetworkExceptionHandler.HandleNetworkException(ex, $"获取{symbol}价格数据");
+                }
+                
                 return null;
             }
         }
@@ -745,12 +938,116 @@ namespace TCClient.Services
                     .ToList();
 
                 Utils.LogManager.Log("BinanceExchange", $"成功获取 {tradableSymbols.Count} 个可交易的USDT合约");
+                
+                // 调试：检查特定合约的状态
+                var alphca = response.Symbols.FirstOrDefault(s => s.Symbol.ToUpper() == "ALPHCAUSDT");
+                if (alphca != null)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"ALPHCAUSDT状态: {alphca.Status}");
+                }
+                var bnx = response.Symbols.FirstOrDefault(s => s.Symbol.ToUpper() == "BNXUSDT");
+                if (bnx != null)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"BNXUSDT状态: {bnx.Status}");
+                }
+                
                 return tradableSymbols;
             }
             catch (Exception ex)
             {
                 Utils.LogManager.Log("BinanceExchange", $"获取可交易合约失败: {ex.Message}");
                 return new List<string>();
+            }
+        }
+
+        /// <summary>
+        /// 测试网络连接
+        /// </summary>
+        public async Task<bool> TestConnectionAsync()
+        {
+            try
+            {
+                Utils.LogManager.Log("BinanceExchange", "开始测试网络连接...");
+                
+                // 测试ping端点
+                var response = await SendRequestAsync<object>("/fapi/v1/ping", HttpMethod.Get);
+                
+                if (response != null)
+                {
+                    Utils.LogManager.Log("BinanceExchange", "网络连接测试成功");
+                    return true;
+                }
+                else
+                {
+                    Utils.LogManager.Log("BinanceExchange", "网络连接测试失败：响应为空");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.Log("BinanceExchange", $"网络连接测试失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 强制重试网络连接，清除缓存并重新初始化
+        /// </summary>
+        public async Task<bool> ForceRetryConnectionAsync()
+        {
+            try
+            {
+                Utils.LogManager.Log("BinanceExchange", "🔄 开始强制重试网络连接...");
+                
+                // 清除缓存
+                _cachedTickers = null;
+                _lastTickerCacheTime = DateTime.MinValue;
+                
+                // 尝试切换到下一个API端点
+                var switchSuccess = await TryNextBaseUrl();
+                if (switchSuccess)
+                {
+                    Utils.LogManager.Log("BinanceExchange", "✅ 成功切换到备用API端点");
+                }
+                
+                // 测试基本连接
+                var pingSuccess = await TestConnectionAsync();
+                if (!pingSuccess)
+                {
+                    Utils.LogManager.Log("BinanceExchange", "❌ Ping测试失败，尝试下一个端点");
+                    
+                    // 如果当前端点失败，再尝试下一个
+                    switchSuccess = await TryNextBaseUrl();
+                    if (switchSuccess)
+                    {
+                        pingSuccess = await TestConnectionAsync();
+                    }
+                }
+                
+                if (!pingSuccess)
+                {
+                    Utils.LogManager.Log("BinanceExchange", "❌ 所有端点Ping测试都失败");
+                    return false;
+                }
+                
+                // 测试获取价格数据
+                var ticker = await GetTickerAsync("BTCUSDT");
+                if (ticker != null && ticker.LastPrice > 0)
+                {
+                    Utils.LogManager.Log("BinanceExchange", $"✅ 强制重试成功，获取到BTCUSDT价格: {ticker.LastPrice:F2}");
+                    Utils.LogManager.Log("BinanceExchange", $"当前使用的API端点: {_alternativeBaseUrls[_currentBaseUrlIndex]}");
+                    return true;
+                }
+                else
+                {
+                    Utils.LogManager.Log("BinanceExchange", "❌ 无法获取价格数据");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Utils.LogManager.Log("BinanceExchange", $"❌ 强制重试连接失败: {ex.Message}");
+                return false;
             }
         }
 

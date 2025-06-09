@@ -26,8 +26,9 @@ namespace TCClient.Views
                     LogManager.Log("RankingView", "使用依赖注入获取服务");
                     var databaseService = app.Services.GetRequiredService<IDatabaseService>();
                     var messageService = app.Services.GetRequiredService<IMessageService>();
+                    var exchangeService = app.Services.GetRequiredService<IExchangeService>();
                     LogManager.Log("RankingView", "成功获取到依赖注入服务，创建RankingViewModel");
-                    DataContext = new RankingViewModel(databaseService, messageService);
+                    DataContext = new RankingViewModel(databaseService, messageService, exchangeService);
                     LogManager.Log("RankingView", "RankingViewModel创建成功");
                 }
                 else
@@ -36,8 +37,9 @@ namespace TCClient.Views
                     // 备用方案：使用ServiceLocator
                     var databaseService = ServiceLocator.GetService<IDatabaseService>();
                     var messageService = ServiceLocator.GetService<IMessageService>();
+                    var exchangeService = ServiceLocator.GetService<IExchangeService>();
                     LogManager.Log("RankingView", "成功获取到ServiceLocator服务，创建RankingViewModel");
-                    DataContext = new RankingViewModel(databaseService, messageService);
+                    DataContext = new RankingViewModel(databaseService, messageService, exchangeService);
                     LogManager.Log("RankingView", "RankingViewModel创建成功");
                 }
             }
@@ -50,8 +52,9 @@ namespace TCClient.Views
                     LogManager.Log("RankingView", "尝试使用ServiceLocator作为备用方案");
                     var databaseService = ServiceLocator.GetService<IDatabaseService>();
                     var messageService = ServiceLocator.GetService<IMessageService>();
+                    var exchangeService = ServiceLocator.GetService<IExchangeService>();
                     LogManager.Log("RankingView", "ServiceLocator备用方案成功获取服务");
-                    DataContext = new RankingViewModel(databaseService, messageService);
+                    DataContext = new RankingViewModel(databaseService, messageService, exchangeService);
                     LogManager.Log("RankingView", "ServiceLocator备用方案创建RankingViewModel成功");
                 }
                 catch (System.Exception ex2)

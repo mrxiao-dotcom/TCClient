@@ -3,12 +3,19 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:TCClient.Views"
+        xmlns:utils="clr-namespace:TCClient.Utils"
+        xmlns:controls="clr-namespace:TCClient.Views.Controls"
         mc:Ignorable="d"
         Title="寻找机会" Height="800" Width="1400"
         WindowStartupLocation="CenterScreen"
         Background="#F5F5F5">
 
     <Window.Resources>
+        <!-- 转换器 -->
+        <controls:GreaterThanZeroConverter x:Key="GreaterThanZeroConverter"/>
+        <controls:LessThanZeroConverter x:Key="LessThanZeroConverter"/>
+        
         <!-- 样式定义 -->
         <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="16"/>
@@ -47,8 +54,34 @@
             <Setter Property="HeadersVisibility" Value="Column"/>
             <Setter Property="Background" Value="White"/>
             <Setter Property="AlternatingRowBackground" Value="#F9F9F9"/>
-            <Setter Property="RowHeight" Value="22"/>
-            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="RowHeight" Value="28"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        
+        <!-- 市场统计区域样式 -->
+        <Style x:Key="StatCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect ShadowDepth="2" Color="Gray" Opacity="0.2"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <Style x:Key="StatNumberStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="24"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+        
+        <Style x:Key="StatLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#666"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
         </Style>
     </Window.Resources>
 
@@ -85,13 +118,20 @@
                         Content="找寻突破" 
                         Style="{StaticResource ButtonStyle}"
                         Click="FindBreakoutButton_Click"
-                        IsEnabled="False"/>
+                        IsEnabled="True"/>
                 <Button x:Name="StopAnalysisButton" 
                         Content="停止分析" 
                         Style="{StaticResource ButtonStyle}"
                         Background="#F44336"
                         Click="StopAnalysisButton_Click"
                         IsEnabled="False"/>
+                <Button x:Name="VolumeAnalysisButton" 
+                        Content="成交额突破分析" 
+                        Style="{StaticResource ButtonStyle}"
+                        Background="#FF9800"
+                        Click="VolumeAnalysisButton_Click"
+                        IsEnabled="True"
+                        ToolTip="单独执行成交额突破分析，不影响其他数据"/>
                 
                 <!-- 分隔线 -->
                 <Border Width="1" Background="#E0E0E0" Margin="15,0"/>
@@ -108,7 +148,35 @@
                              Text="30"
                              TextChanged="RefreshIntervalTextBox_TextChanged"
                              ToolTip="设置自动刷新间隔（1-3000秒）"/>
-                    <TextBlock Text="秒" FontSize="12" VerticalAlignment="Center" Margin="5,0,0,0" Foreground="#666666"/>
+                    <TextBlock Text="秒" FontSize="12" VerticalAlignment="Center" Margin="5,0,15,0" Foreground="#666666"/>
+                </StackPanel>
+                
+                <!-- 分隔线 -->
+                <Border Width="1" Background="#E0E0E0" Margin="0,0,15,0"/>
+                
+                <!-- 放量分析设置 -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="放量天数:" FontSize="12" VerticalAlignment="Center" Margin="0,0,5,0" Foreground="#666666"/>
+                    <TextBox x:Name="VolumeDaysTextBox" 
+                             Width="50" 
+                             Height="25"
+                             FontSize="12"
+                             VerticalContentAlignment="Center"
+                             HorizontalContentAlignment="Center"
+                             Text="7"
+                             ToolTip="与过去N天平均成交量比较"/>
+                    <TextBlock Text="天" FontSize="12" VerticalAlignment="Center" Margin="5,0,15,0" Foreground="#666666"/>
+                    
+                    <TextBlock Text="放量倍数:" FontSize="12" VerticalAlignment="Center" Margin="0,0,5,0" Foreground="#666666"/>
+                    <TextBox x:Name="VolumeMultiplierTextBox" 
+                             Width="50" 
+                             Height="25"
+                             FontSize="12"
+                             VerticalContentAlignment="Center"
+                             HorizontalContentAlignment="Center"
+                             Text="2.0"
+                             ToolTip="超过平均成交量的倍数"/>
+                    <TextBlock Text="倍" FontSize="12" VerticalAlignment="Center" Margin="5,0,0,0" Foreground="#666666"/>
                 </StackPanel>
             </StackPanel>
         </Border>
@@ -154,7 +222,9 @@
                 </Border.Effect>
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="1.2*"/>
+                        <ColumnDefinition Width="1.2*"/>
+                        <ColumnDefinition Width="0.8*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
@@ -166,16 +236,15 @@
                                 <RowDefinition Height="200"/>
                             </Grid.RowDefinitions>
                             
-                            <TextBlock Grid.Row="0" Text="📈 今日涨幅前10" Style="{StaticResource HeaderTextStyle}" 
+                            <TextBlock Grid.Row="0" Text="📈 涨幅前10" Style="{StaticResource HeaderTextStyle}" 
                                        FontSize="12" Foreground="#4CAF50" HorizontalAlignment="Center" Margin="0,0,0,10"/>
                             
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                                 <DataGrid x:Name="TopGainersDataGrid" Style="{StaticResource DataGridStyle}">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="排名" Binding="{Binding Rank}" Width="40"/>
-                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="70"/>
-                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                        <DataGridTextColumn Header="涨幅" Binding="{Binding ChangePercent, StringFormat=P2}" Width="60">
+                                        <DataGridTextColumn Header="排名" Binding="{Binding Rank}" Width="35"/>
+                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="65"/>
+                                        <DataGridTextColumn Header="涨幅" Binding="{Binding ChangePercent, StringFormat=P2}" Width="55">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="#4CAF50"/>
@@ -183,19 +252,11 @@
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
-                                        <DataGridTextColumn Header="24h成交额" Binding="{Binding FormattedQuoteVolume}" Width="80">
+                                        <DataGridTextColumn Header="24h成交额" Binding="{Binding FormattedQuoteVolume}" Width="70">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="#666666"/>
-                                                    <Setter Property="FontSize" Value="9"/>
-                                                </Style>
-                                            </DataGridTextColumn.ElementStyle>
-                                        </DataGridTextColumn>
-                                        <DataGridTextColumn Header="24h成交量" Binding="{Binding FormattedVolume}" Width="80">
-                                            <DataGridTextColumn.ElementStyle>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#666666"/>
-                                                    <Setter Property="FontSize" Value="9"/>
+                                                    <Setter Property="FontSize" Value="11"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
@@ -213,16 +274,15 @@
                                 <RowDefinition Height="200"/>
                             </Grid.RowDefinitions>
                             
-                            <TextBlock Grid.Row="0" Text="📉 今日跌幅前10" Style="{StaticResource HeaderTextStyle}" 
+                            <TextBlock Grid.Row="0" Text="📉 跌幅前10" Style="{StaticResource HeaderTextStyle}" 
                                        FontSize="12" Foreground="#F44336" HorizontalAlignment="Center" Margin="0,0,0,10"/>
                             
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                                 <DataGrid x:Name="TopLosersDataGrid" Style="{StaticResource DataGridStyle}">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="排名" Binding="{Binding Rank}" Width="40"/>
-                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="70"/>
-                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                        <DataGridTextColumn Header="跌幅" Binding="{Binding ChangePercent, StringFormat=P2}" Width="60">
+                                        <DataGridTextColumn Header="排名" Binding="{Binding Rank}" Width="35"/>
+                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="65"/>
+                                        <DataGridTextColumn Header="跌幅" Binding="{Binding ChangePercent, StringFormat=P2}" Width="55">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="#F44336"/>
@@ -230,25 +290,115 @@
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
-                                        <DataGridTextColumn Header="24h成交额" Binding="{Binding FormattedQuoteVolume}" Width="80">
+                                        <DataGridTextColumn Header="24h成交额" Binding="{Binding FormattedQuoteVolume}" Width="70">
                                             <DataGridTextColumn.ElementStyle>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Foreground" Value="#666666"/>
-                                                    <Setter Property="FontSize" Value="9"/>
-                                                </Style>
-                                            </DataGridTextColumn.ElementStyle>
-                                        </DataGridTextColumn>
-                                        <DataGridTextColumn Header="24h成交量" Binding="{Binding FormattedVolume}" Width="80">
-                                            <DataGridTextColumn.ElementStyle>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Foreground" Value="#666666"/>
-                                                    <Setter Property="FontSize" Value="9"/>
+                                                    <Setter Property="FontSize" Value="11"/>
                                                 </Style>
                                             </DataGridTextColumn.ElementStyle>
                                         </DataGridTextColumn>
                                     </DataGrid.Columns>
                                 </DataGrid>
                             </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- 市场统计信息区域 -->
+                    <Border Grid.Column="2" Style="{StaticResource StatCardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <TextBlock Grid.Row="0" Text="📊 市场统计" FontSize="14" FontWeight="Bold" 
+                                       Foreground="#2196F3" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            
+                            <Grid Grid.Row="1">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                
+                                <!-- 涨跌家数统计 -->
+                                <TextBlock Grid.Row="0" Text="涨跌家数" FontSize="12" FontWeight="Bold" 
+                                           HorizontalAlignment="Center" Margin="0,0,0,5"/>
+                                
+                                <Grid Grid.Row="1" Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    
+                                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                                        <TextBlock x:Name="RisingCountText" Text="0" Style="{StaticResource StatNumberStyle}" 
+                                                   Foreground="#4CAF50" FontSize="18"/>
+                                        <TextBlock Text="上涨" Style="{StaticResource StatLabelStyle}"/>
+                                    </StackPanel>
+                                    
+                                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                                        <TextBlock x:Name="FallingCountText" Text="0" Style="{StaticResource StatNumberStyle}" 
+                                                   Foreground="#F44336" FontSize="18"/>
+                                        <TextBlock Text="下跌" Style="{StaticResource StatLabelStyle}"/>
+                                    </StackPanel>
+                                </Grid>
+                                
+                                <!-- 24小时成交额汇总 -->
+                                <TextBlock Grid.Row="2" Text="24h总成交额" FontSize="12" FontWeight="Bold" 
+                                           HorizontalAlignment="Center" Margin="0,0,0,5"/>
+                                
+                                <StackPanel Grid.Row="3" HorizontalAlignment="Center" Margin="0,0,0,10">
+                                    <TextBlock x:Name="TotalVolumeText" Text="0" Style="{StaticResource StatNumberStyle}" 
+                                               Foreground="#FF9800" FontSize="16"/>
+                                    <TextBlock Text="USDT" Style="{StaticResource StatLabelStyle}"/>
+                                </StackPanel>
+                                
+                                <!-- 更新时间 -->
+                                <TextBlock Grid.Row="4" x:Name="MarketStatsUpdateTime" Text="--:--:--" 
+                                           FontSize="10" Foreground="#999" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                                
+                                <!-- 手动刷新按钮 -->
+                                <Button Grid.Row="5" x:Name="RefreshMarketStatsButton" Content="刷新统计" 
+                                        Width="80" Height="25" FontSize="10" Margin="0,5,0,0"
+                                        Click="RefreshMarketStatsButton_Click"
+                                        Background="#2196F3" Foreground="White" BorderThickness="0"/>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- 日志区域 -->
+                    <Border Grid.Column="3" Style="{StaticResource StatCardStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            
+                            <TextBlock Grid.Row="0" Text="📝 分析日志" FontSize="14" FontWeight="Bold" 
+                                       Foreground="#9C27B0" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Height="120">
+                                <TextBox x:Name="AnalysisLogTextBox" 
+                                         IsReadOnly="True"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         FontSize="10"
+                                         FontFamily="Consolas"
+                                         TextWrapping="Wrap"
+                                         VerticalAlignment="Stretch"
+                                         HorizontalAlignment="Stretch"/>
+                            </ScrollViewer>
+                            
+                            <Button Grid.Row="2" x:Name="ClearLogButton" Content="清空日志" 
+                                    Width="70" Height="20" FontSize="9" Margin="0,5,0,0"
+                                    Click="ClearLogButton_Click"
+                                    Background="#9C27B0" Foreground="White" BorderThickness="0"/>
                         </Grid>
                     </Border>
                 </Grid>
@@ -265,187 +415,265 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Text="🚀 突破分析" Style="{StaticResource HeaderTextStyle}" 
+                    <TextBlock Grid.Row="0" Text="🚀 突破分析与放量监控" Style="{StaticResource HeaderTextStyle}" 
                                FontSize="12" HorizontalAlignment="Center" Margin="0,0,0,10"/>
 
                     <Grid Grid.Row="1">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- 突破新高区域 -->
-                        <!-- 5天新高 -->
-                        <Border Grid.Row="0" Grid.Column="0" BorderBrush="#E0E0E0" BorderThickness="1" Margin="2" Padding="5">
+                        <!-- 左侧：突破分析区域（压缩到一半） -->
+                        <Border Grid.Column="0" BorderBrush="#E0E0E0" BorderThickness="0,0,1,0" Padding="0,0,10,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="📊 突破5天新高" FontSize="12" FontWeight="Bold" 
-                                           Foreground="#FF9800" HorizontalAlignment="Center" Margin="0,0,0,5"/>
+
+                                <TextBlock Grid.Row="0" Text="📊 突破分析" FontSize="12" FontWeight="Bold" 
+                                           Foreground="#FF9800" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                                <Grid Grid.Row="1">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- 突破新高区域 -->
+                                    <!-- 5天新高 -->
+                                    <Border Grid.Row="0" Grid.Column="0" BorderBrush="#E0E0E0" BorderThickness="1" Margin="1" Padding="3">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="5天新高" FontSize="10" FontWeight="Bold" 
+                                                       Foreground="#FF9800" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                <DataGrid x:Name="Break5DayHighDataGrid" Style="{StaticResource DataGridStyle}" FontSize="12">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
+                                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="60"/>
+                                                        <DataGridTextColumn Header="突破%" Binding="{Binding BreakPercent, StringFormat=P1}" Width="50">
+                                                            <DataGridTextColumn.ElementStyle>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#FF9800"/>
+                                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                                </Style>
+                                                            </DataGridTextColumn.ElementStyle>
+                                                        </DataGridTextColumn>
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </ScrollViewer>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 10天新高 -->
+                                    <Border Grid.Row="0" Grid.Column="1" BorderBrush="#E0E0E0" BorderThickness="1" Margin="1" Padding="3">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="10天新高" FontSize="10" FontWeight="Bold" 
+                                                       Foreground="#FF9800" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                <DataGrid x:Name="Break10DayHighDataGrid" Style="{StaticResource DataGridStyle}" FontSize="12">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
+                                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="60"/>
+                                                        <DataGridTextColumn Header="突破%" Binding="{Binding BreakPercent, StringFormat=P1}" Width="50">
+                                                            <DataGridTextColumn.ElementStyle>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#FF9800"/>
+                                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                                </Style>
+                                                            </DataGridTextColumn.ElementStyle>
+                                                        </DataGridTextColumn>
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </ScrollViewer>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 20天新高 -->
+                                    <Border Grid.Row="0" Grid.Column="2" BorderBrush="#E0E0E0" BorderThickness="1" Margin="1" Padding="3">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="20天新高" FontSize="10" FontWeight="Bold" 
+                                                       Foreground="#FF9800" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                <DataGrid x:Name="Break20DayHighDataGrid" Style="{StaticResource DataGridStyle}" FontSize="12">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
+                                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="60"/>
+                                                        <DataGridTextColumn Header="突破%" Binding="{Binding BreakPercent, StringFormat=P1}" Width="50">
+                                                            <DataGridTextColumn.ElementStyle>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#FF9800"/>
+                                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                                </Style>
+                                                            </DataGridTextColumn.ElementStyle>
+                                                        </DataGridTextColumn>
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </ScrollViewer>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 突破新低区域 -->
+                                    <!-- 5天新低 -->
+                                    <Border Grid.Row="1" Grid.Column="0" BorderBrush="#E0E0E0" BorderThickness="1" Margin="1" Padding="3">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="5天新低" FontSize="10" FontWeight="Bold" 
+                                                       Foreground="#9C27B0" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                <DataGrid x:Name="Break5DayLowDataGrid" Style="{StaticResource DataGridStyle}" FontSize="12">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
+                                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="60"/>
+                                                        <DataGridTextColumn Header="突破%" Binding="{Binding BreakPercent, StringFormat=P1}" Width="50">
+                                                            <DataGridTextColumn.ElementStyle>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#9C27B0"/>
+                                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                                </Style>
+                                                            </DataGridTextColumn.ElementStyle>
+                                                        </DataGridTextColumn>
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </ScrollViewer>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 10天新低 -->
+                                    <Border Grid.Row="1" Grid.Column="1" BorderBrush="#E0E0E0" BorderThickness="1" Margin="1" Padding="3">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="10天新低" FontSize="10" FontWeight="Bold" 
+                                                       Foreground="#9C27B0" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                <DataGrid x:Name="Break10DayLowDataGrid" Style="{StaticResource DataGridStyle}" FontSize="12">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
+                                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="60"/>
+                                                        <DataGridTextColumn Header="突破%" Binding="{Binding BreakPercent, StringFormat=P1}" Width="50">
+                                                            <DataGridTextColumn.ElementStyle>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#9C27B0"/>
+                                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                                </Style>
+                                                            </DataGridTextColumn.ElementStyle>
+                                                        </DataGridTextColumn>
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </ScrollViewer>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 20天新低 -->
+                                    <Border Grid.Row="1" Grid.Column="2" BorderBrush="#E0E0E0" BorderThickness="1" Margin="1" Padding="3">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            <TextBlock Grid.Row="0" Text="20天新低" FontSize="10" FontWeight="Bold" 
+                                                       Foreground="#9C27B0" HorizontalAlignment="Center" Margin="0,0,0,3"/>
+                                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                <DataGrid x:Name="Break20DayLowDataGrid" Style="{StaticResource DataGridStyle}" FontSize="12">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
+                                                        <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="60"/>
+                                                        <DataGridTextColumn Header="突破%" Binding="{Binding BreakPercent, StringFormat=P1}" Width="50">
+                                                            <DataGridTextColumn.ElementStyle>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#9C27B0"/>
+                                                                    <Setter Property="FontWeight" Value="Bold"/>
+                                                                </Style>
+                                                            </DataGridTextColumn.ElementStyle>
+                                                        </DataGridTextColumn>
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </ScrollViewer>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <!-- 右侧：放量合约区域 -->
+                        <Border Grid.Column="1" Padding="10,0,0,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Text="📈 24小时放量合约" FontSize="12" FontWeight="Bold" 
+                                           Foreground="#2196F3" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
                                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                    <DataGrid x:Name="Break5DayHighDataGrid" Style="{StaticResource DataGridStyle}">
+                                    <DataGrid x:Name="VolumeBreakoutDataGrid" Style="{StaticResource DataGridStyle}" MouseDoubleClick="DataGrid_MouseDoubleClick">
                                         <DataGrid.Columns>
-                                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="80"/>
+                                            <DataGridTextColumn Header="排名" Binding="{Binding Rank}" Width="40"/>
+                                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="70"/>
                                             <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="5天最高" Binding="{Binding HighPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="突破幅度" Binding="{Binding BreakPercent, StringFormat=P2}" Width="70">
+                                            <DataGridTextColumn Header="涨跌幅" Binding="{Binding ChangePercent, StringFormat=P2}" Width="60">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding ChangePercent, Converter={StaticResource GreaterThanZeroConverter}}" Value="True">
+                                                                <Setter Property="Foreground" Value="#4CAF50"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding ChangePercent, Converter={StaticResource LessThanZeroConverter}}" Value="True">
+                                                                <Setter Property="Foreground" Value="#F44336"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="24h成交额" Binding="{Binding FormattedQuoteVolume}" Width="80">
+                                                <DataGridTextColumn.ElementStyle>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#2196F3"/>
+                                                        <Setter Property="FontSize" Value="12"/>
+                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                    </Style>
+                                                </DataGridTextColumn.ElementStyle>
+                                            </DataGridTextColumn>
+                                            <DataGridTextColumn Header="放量倍数" Binding="{Binding VolumeMultiplier, StringFormat=F1}" Width="70">
                                                 <DataGridTextColumn.ElementStyle>
                                                     <Style TargetType="TextBlock">
                                                         <Setter Property="Foreground" Value="#FF9800"/>
                                                         <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="FontSize" Value="12"/>
                                                     </Style>
                                                 </DataGridTextColumn.ElementStyle>
                                             </DataGridTextColumn>
-                                        </DataGrid.Columns>
-                                    </DataGrid>
-                                </ScrollViewer>
-                            </Grid>
-                        </Border>
-
-                        <!-- 10天新高 -->
-                        <Border Grid.Row="0" Grid.Column="1" BorderBrush="#E0E0E0" BorderThickness="1" Margin="2" Padding="5">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="📊 突破10天新高" FontSize="12" FontWeight="Bold" 
-                                           Foreground="#FF9800" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                    <DataGrid x:Name="Break10DayHighDataGrid" Style="{StaticResource DataGridStyle}">
-                                        <DataGrid.Columns>
-                                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="80"/>
-                                            <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="10天最高" Binding="{Binding HighPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="突破幅度" Binding="{Binding BreakPercent, StringFormat=P2}" Width="70">
+                                            <DataGridTextColumn Header="平均成交额" Binding="{Binding FormattedAvgQuoteVolume}" Width="80">
                                                 <DataGridTextColumn.ElementStyle>
                                                     <Style TargetType="TextBlock">
-                                                        <Setter Property="Foreground" Value="#FF9800"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                    </Style>
-                                                </DataGridTextColumn.ElementStyle>
-                                            </DataGridTextColumn>
-                                        </DataGrid.Columns>
-                                    </DataGrid>
-                                </ScrollViewer>
-                            </Grid>
-                        </Border>
-
-                        <!-- 20天新高 -->
-                        <Border Grid.Row="0" Grid.Column="2" BorderBrush="#E0E0E0" BorderThickness="1" Margin="2" Padding="5">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="📊 突破20天新高" FontSize="12" FontWeight="Bold" 
-                                           Foreground="#FF9800" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                    <DataGrid x:Name="Break20DayHighDataGrid" Style="{StaticResource DataGridStyle}">
-                                        <DataGrid.Columns>
-                                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="80"/>
-                                            <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="20天最高" Binding="{Binding HighPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="突破幅度" Binding="{Binding BreakPercent, StringFormat=P2}" Width="70">
-                                                <DataGridTextColumn.ElementStyle>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Foreground" Value="#FF9800"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                    </Style>
-                                                </DataGridTextColumn.ElementStyle>
-                                            </DataGridTextColumn>
-                                        </DataGrid.Columns>
-                                    </DataGrid>
-                                </ScrollViewer>
-                            </Grid>
-                        </Border>
-
-                        <!-- 突破新低区域 -->
-                        <!-- 5天新低 -->
-                        <Border Grid.Row="1" Grid.Column="0" BorderBrush="#E0E0E0" BorderThickness="1" Margin="2" Padding="5">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="📉 突破5天新低" FontSize="12" FontWeight="Bold" 
-                                           Foreground="#9C27B0" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                    <DataGrid x:Name="Break5DayLowDataGrid" Style="{StaticResource DataGridStyle}">
-                                        <DataGrid.Columns>
-                                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="80"/>
-                                            <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="5天最低" Binding="{Binding LowPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="突破幅度" Binding="{Binding BreakPercent, StringFormat=P2}" Width="70">
-                                                <DataGridTextColumn.ElementStyle>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Foreground" Value="#9C27B0"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                    </Style>
-                                                </DataGridTextColumn.ElementStyle>
-                                            </DataGridTextColumn>
-                                        </DataGrid.Columns>
-                                    </DataGrid>
-                                </ScrollViewer>
-                            </Grid>
-                        </Border>
-
-                        <!-- 10天新低 -->
-                        <Border Grid.Row="1" Grid.Column="1" BorderBrush="#E0E0E0" BorderThickness="1" Margin="2" Padding="5">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="📉 突破10天新低" FontSize="12" FontWeight="Bold" 
-                                           Foreground="#9C27B0" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                    <DataGrid x:Name="Break10DayLowDataGrid" Style="{StaticResource DataGridStyle}">
-                                        <DataGrid.Columns>
-                                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="80"/>
-                                            <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="10天最低" Binding="{Binding LowPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="突破幅度" Binding="{Binding BreakPercent, StringFormat=P2}" Width="70">
-                                                <DataGridTextColumn.ElementStyle>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Foreground" Value="#9C27B0"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
-                                                    </Style>
-                                                </DataGridTextColumn.ElementStyle>
-                                            </DataGridTextColumn>
-                                        </DataGrid.Columns>
-                                    </DataGrid>
-                                </ScrollViewer>
-                            </Grid>
-                        </Border>
-
-                        <!-- 20天新低 -->
-                        <Border Grid.Row="1" Grid.Column="2" BorderBrush="#E0E0E0" BorderThickness="1" Margin="2" Padding="5">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="📉 突破20天新低" FontSize="12" FontWeight="Bold" 
-                                           Foreground="#9C27B0" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                                    <DataGrid x:Name="Break20DayLowDataGrid" Style="{StaticResource DataGridStyle}">
-                                        <DataGrid.Columns>
-                                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="80"/>
-                                            <DataGridTextColumn Header="当前价" Binding="{Binding CurrentPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="20天最低" Binding="{Binding LowPrice, StringFormat=F4}" Width="70"/>
-                                            <DataGridTextColumn Header="突破幅度" Binding="{Binding BreakPercent, StringFormat=P2}" Width="70">
-                                                <DataGridTextColumn.ElementStyle>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Foreground" Value="#9C27B0"/>
-                                                        <Setter Property="FontWeight" Value="Bold"/>
+                                                        <Setter Property="Foreground" Value="#666666"/>
+                                                        <Setter Property="FontSize" Value="12"/>
                                                     </Style>
                                                 </DataGridTextColumn.ElementStyle>
                                             </DataGridTextColumn>

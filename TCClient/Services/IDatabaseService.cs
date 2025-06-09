@@ -102,6 +102,7 @@ namespace TCClient.Services
         // K线数据相关
         Task<List<string>> GetAllSymbolsAsync(CancellationToken cancellationToken = default);
         Task<List<KLineData>> GetKlineDataAsync(string symbol, DateTime startDate, DateTime endDate, CancellationToken cancellationToken = default);
+        Task<decimal> GetAverageQuoteVolumeAsync(string symbol, int days, CancellationToken cancellationToken = default);
         
         // 账户余额相关
         Task<AccountBalance> GetAccountBalanceAsync(long accountId, CancellationToken cancellationToken = default);

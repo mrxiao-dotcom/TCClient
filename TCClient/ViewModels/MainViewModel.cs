@@ -11,6 +11,7 @@ using TCClient.Utils;
 using System.Linq;
 using System.IO;
 using Microsoft.Extensions.DependencyInjection;
+using System.Windows.Threading;
 
 namespace TCClient.ViewModels
 {
@@ -215,6 +216,7 @@ namespace TCClient.ViewModels
         public ICommand SwitchAccountCommand { get; }
         public ICommand ShowPushStatisticsCommand { get; }
         public ICommand ShowAccountQueryCommand { get; }
+        public ICommand ShowNetworkDiagnosticCommand { get; }
 
         public MainViewModel(
             IDatabaseService databaseService,
@@ -249,6 +251,7 @@ namespace TCClient.ViewModels
             SwitchAccountCommand = new RelayCommand(ShowSwitchAccountDialog);
             ShowPushStatisticsCommand = new RelayCommand(ShowPushStatistics);
             ShowAccountQueryCommand = new RelayCommand(ShowAccountQuery);
+            ShowNetworkDiagnosticCommand = new RelayCommand(ShowNetworkDiagnostic);
 
             // 初始化状态
             StatusMessage = "就绪";
@@ -529,26 +532,51 @@ namespace TCClient.ViewModels
                         LogToFile($"保存状态失败: {saveEx.Message}");
                     }
                     
-                    // 使用CloseByUser方法关闭主窗口
-                    if (Application.Current.MainWindow is Views.MainWindow mainWindow)
+                    // 设置退出标志
+                    AppSession.UserRequestedExit = true;
+                    LogToFile("设置AppSession.UserRequestedExit = true");
+                    
+                    // 使用Dispatcher.BeginInvoke安全地关闭主窗口
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        // 记录日志
-                        LogToFile("找到主窗口，调用CloseByUser方法");
-                        
-                        // 设置一个标志让应用程序知道这是用户请求的关闭
-                        AppSession.UserRequestedExit = true;
-                        LogToFile("设置AppSession.UserRequestedExit = true");
-                        
-                        // 调用CloseByUser方法
-                        mainWindow.CloseByUser();
-                        LogToFile("CloseByUser方法已调用");
-                    }
-                    else
+                        try
+                        {
+                            if (Application.Current.MainWindow is Views.MainWindow mainWindow)
+                            {
+                                LogToFile("找到主窗口，调用CloseByUser方法");
+                                mainWindow.CloseByUser();
+                                LogToFile("CloseByUser方法已调用");
+                            }
+                            else
+                            {
+                                LogToFile("未找到主窗口，直接调用Application.Current.Shutdown()");
+                                Application.Current.Shutdown();
+                            }
+                        }
+                        catch (Exception closeEx)
+                        {
+                            LogToFile($"关闭窗口时发生异常: {closeEx.Message}");
+                            // 如果关闭窗口失败，尝试直接关闭应用程序
+                            try
+                            {
+                                Application.Current.Shutdown();
+                            }
+                            catch (Exception shutdownEx)
+                            {
+                                LogToFile($"应用程序关闭失败: {shutdownEx.Message}");
+                                // 最后的手段：强制退出进程
+                                Environment.Exit(0);
+                            }
+                        }
+                    }), System.Windows.Threading.DispatcherPriority.Background);
+                    
+                    // 设置一个超时机制，如果5秒内程序还没退出，强制终止
+                    Task.Run(async () =>
                     {
-                        // 如果找不到主窗口，直接关闭应用程序
-                        LogToFile("未找到主窗口，直接调用Application.Current.Shutdown()");
-                        Application.Current.Shutdown();
-                    }
+                        await Task.Delay(5000);
+                        LogToFile("程序退出超时，执行最终强制退出");
+                        Environment.Exit(0);
+                    });
                 }
                 else
                 {
@@ -558,11 +586,20 @@ namespace TCClient.ViewModels
             catch (Exception ex)
             {
                 LogMenuError(nameof(Exit), ex);
-                _messageService.ShowMessage(
-                    $"退出应用程序失败：{ex.Message}",
-                    "错误",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                try
+                {
+                    _messageService.ShowMessage(
+                        $"退出应用程序失败：{ex.Message}",
+                        "错误",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
+                }
+                catch (Exception msgEx)
+                {
+                    LogToFile($"显示错误消息失败: {msgEx.Message}");
+                    // 如果连错误消息都无法显示，直接退出
+                    Environment.Exit(1);
+                }
             }
         }
 
@@ -989,6 +1026,30 @@ namespace TCClient.ViewModels
                 LogMenuError(nameof(ShowAccountQuery), ex);
                 _messageService.ShowMessage(
                     $"打开账户查询窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowNetworkDiagnostic()
+        {
+            try
+            {
+                // 创建网络诊断窗口
+                var window = new NetworkDiagnosticWindow()
+                {
+                    Owner = Application.Current.MainWindow
+                };
+
+                // 显示窗口
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowNetworkDiagnostic), ex);
+                _messageService.ShowMessage(
+                    $"打开网络诊断窗口失败：{ex.Message}",
                     "错误",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);

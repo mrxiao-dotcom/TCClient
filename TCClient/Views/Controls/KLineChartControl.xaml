@@ -7,88 +7,59 @@
              mc:Ignorable="d" 
              d:DesignHeight="450" d:DesignWidth="800">
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="100"/>
+        </Grid.RowDefinitions>
 
-        <!-- 左侧自定义合约列表区域 -->
-        <Grid Grid.Column="0" Margin="10">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-            
-            <!-- 操作按钮 -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-                <Button x:Name="AddContractButton" Content="增加自选" Width="80" Height="28" Margin="0,0,5,0" 
-                        FontSize="11" Click="AddContractButton_Click" Background="#4CAF50" Foreground="White"/>
-                <Button x:Name="RemoveContractButton" Content="删除自选" Width="80" Height="28" 
-                        FontSize="11" Click="RemoveContractButton_Click" Background="#F44336" Foreground="White"/>
+        <!-- 顶部控制面板 -->
+        <Border Grid.Row="0" Background="#2E2E2E" Padding="5">
+            <StackPanel Orientation="Horizontal">
+                <!-- 价格信息 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                    <TextBlock x:Name="MaxPriceTextBlock" Foreground="White" Margin="0,0,10,0" FontSize="11"/>
+                    <TextBlock x:Name="MinPriceTextBlock" Foreground="White" FontSize="11"/>
+                </StackPanel>
+                
+                <!-- 均线设置 -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                    <TextBlock Text="MA:" Foreground="White" VerticalAlignment="Center" Margin="0,0,5,0" FontSize="11"/>
+                    <TextBox x:Name="MA1TextBox" Width="30" Height="20" Text="20" FontSize="10" 
+                             VerticalContentAlignment="Center" HorizontalContentAlignment="Center"
+                             TextChanged="MATextBox_TextChanged"/>
+                </StackPanel>
+                
+                <!-- 显示选项 -->
+                <StackPanel Orientation="Horizontal">
+                    <CheckBox x:Name="ShowVolumeCheckBox" Content="成交额" Foreground="White" 
+                              IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" FontSize="11"
+                              Checked="ShowVolumeCheckBox_CheckedChanged" Unchecked="ShowVolumeCheckBox_CheckedChanged"/>
+                    <CheckBox x:Name="ShowMACheckBox" Content="均线" Foreground="White" 
+                              IsChecked="True" VerticalAlignment="Center" FontSize="11"
+                              Checked="ShowMACheckBox_CheckedChanged" Unchecked="ShowMACheckBox_CheckedChanged"/>
+                </StackPanel>
             </StackPanel>
-            
-            <!-- 合约列表 -->
-            <DataGrid Grid.Row="1" x:Name="ContractListDataGrid" 
-                      ItemsSource="{Binding CustomContracts}"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      SelectionMode="Single"
-                      GridLinesVisibility="Horizontal"
-                      HeadersVisibility="Column"
-                      CanUserReorderColumns="False"
-                      CanUserResizeColumns="True"
-                      CanUserSortColumns="False"
-                      MouseDoubleClick="ContractListDataGrid_MouseDoubleClick"
-                      FontSize="10">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="60"/>
-                    <DataGridTextColumn Header="涨幅%" Binding="{Binding PriceChangePercent, StringFormat={}{0:F2}%}" Width="50">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding PriceChangePercent, Converter={x:Static local:GreaterThanZeroConverter.Instance}}" Value="True">
-                                        <Setter Property="Foreground" Value="#4CAF50"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding PriceChangePercent, Converter={x:Static local:LessThanZeroConverter.Instance}}" Value="True">
-                                        <Setter Property="Foreground" Value="#F44336"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                    <DataGridTextColumn Header="最新价" Binding="{Binding LastPrice, StringFormat={}{0:F4}}" Width="70"/>
-                    <DataGridTextColumn Header="成交额" Binding="{Binding Volume, StringFormat={}{0:F0}}" Width="*"/>
-                </DataGrid.Columns>
-                <DataGrid.RowStyle>
-                    <Style TargetType="DataGridRow">
-                        <Setter Property="Height" Value="22"/>
-                    </Style>
-                </DataGrid.RowStyle>
-            </DataGrid>
-        </Grid>
-
-        <!-- 右侧K线图区域 -->
-        <Grid Grid.Column="1" Margin="10">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-            
-            <!-- 价格标签 -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,5">
-                <TextBlock x:Name="MaxPriceTextBlock" Foreground="White" Margin="0,0,10,0"/>
-                <TextBlock x:Name="MinPriceTextBlock" Foreground="White"/>
-            </StackPanel>
-            
-            <!-- K线图Canvas -->
-            <Border Grid.Row="1" 
-                    BorderBrush="#FF3E3E3E" 
-                    BorderThickness="1" 
-                    Background="#FF1E1E1E">
-                <Canvas x:Name="KLineCanvas" 
-                        Background="Transparent"
-                        ClipToBounds="True"/>
-            </Border>
-        </Grid>
+        </Border>
+        
+        <!-- K线图区域 -->
+        <Border Grid.Row="1" 
+                BorderBrush="#FF3E3E3E" 
+                BorderThickness="1" 
+                Background="#FF1E1E1E">
+            <Canvas x:Name="KLineCanvas" 
+                    Background="Transparent"
+                    ClipToBounds="True"/>
+        </Border>
+        
+        <!-- 成交额区域 -->
+        <Border Grid.Row="2" 
+                BorderBrush="#FF3E3E3E" 
+                BorderThickness="1,0,1,1" 
+                Background="#FF1E1E1E">
+            <Canvas x:Name="VolumeCanvas" 
+                    Background="Transparent"
+                    ClipToBounds="True"/>
+        </Border>
     </Grid>
 </UserControl> 

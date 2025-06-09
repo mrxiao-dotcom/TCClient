@@ -124,5 +124,80 @@ namespace TCClient.Utils
             }
             catch { }
         }
+
+        /// <summary>
+        /// 强制清理所有资源并退出应用程序
+        /// </summary>
+        public static void ForceCleanupAndExit()
+        {
+            try
+            {
+                Log("开始强制清理资源并退出应用程序");
+                
+                // 停止所有后台任务
+                try
+                {
+                    // 取消所有可能的CancellationToken
+                    System.Threading.CancellationTokenSource.CreateLinkedTokenSource().Cancel();
+                    Log("已取消所有后台任务");
+                }
+                catch (Exception ex)
+                {
+                    Log($"取消后台任务失败: {ex.Message}");
+                }
+                
+                // 清理定时器
+                try
+                {
+                    // 清理所有可能的DispatcherTimer
+                    if (System.Windows.Application.Current != null)
+                    {
+                        foreach (System.Windows.Window window in System.Windows.Application.Current.Windows)
+                        {
+                            try
+                            {
+                                if (window is Views.FindOpportunityWindow)
+                                {
+                                    window.Close();
+                                }
+                            }
+                            catch (Exception windowEx)
+                            {
+                                Log($"关闭窗口失败: {windowEx.Message}");
+                            }
+                        }
+                    }
+                    Log("已清理定时器");
+                }
+                catch (Exception ex)
+                {
+                    Log($"清理定时器失败: {ex.Message}");
+                }
+                
+                // 强制垃圾回收
+                try
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    Log("已执行垃圾回收");
+                }
+                catch (Exception ex)
+                {
+                    Log($"垃圾回收失败: {ex.Message}");
+                }
+                
+                Log("资源清理完成，强制退出进程");
+                
+                // 强制退出进程
+                Environment.Exit(0);
+            }
+            catch (Exception ex)
+            {
+                Log($"强制清理资源时发生异常: {ex.Message}");
+                // 无论如何都要退出
+                Environment.Exit(1);
+            }
+        }
     }
 } 

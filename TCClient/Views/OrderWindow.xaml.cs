@@ -69,8 +69,8 @@ namespace TCClient.Views
                 // 将K线图控件传递给ViewModel，以便更新自选合约价格
                 _viewModel.KLineChartControl = KLineChartControl;
                 
-                // 订阅合约选择事件
-                KLineChartControl.ContractSelected += OnContractSelected;
+                // 订阅合约选择事件 - 删除已不存在的事件订阅
+                // KLineChartControl.ContractSelected += OnContractSelected;
                 //LogToFile("K线图控件初始化完成");
 
                 // 添加回车键触发查询
@@ -257,6 +257,13 @@ namespace TCClient.Views
                     catch (Exception priceEx)
                     {
                         Utils.LogManager.Log("OrderWindow", $"获取价格数据失败: {priceEx.Message}");
+                        
+                        // 检查是否为网络异常
+                        if (Utils.NetworkExceptionHandler.IsNetworkException(priceEx))
+                        {
+                            Utils.NetworkExceptionHandler.HandleNetworkException(priceEx, $"获取{contractSymbol}价格数据");
+                            return;
+                        }
                         
                         // 确定要展示的建议
                         string suggestions = "请检查：\n"
@@ -1041,14 +1048,14 @@ namespace TCClient.Views
         protected override void OnClosed(EventArgs e)
         {
             try
-        {
-            //LogToFile("=== 下单窗口关闭 ===");
+            {
+                //LogToFile("=== 下单窗口关闭 ===");
                 
-                // 取消订阅K线图控件事件
-                if (KLineChartControl != null)
-                {
-                    KLineChartControl.ContractSelected -= OnContractSelected;
-                }
+                // 取消订阅K线图控件事件 - 删除已不存在的事件订阅
+                // if (KLineChartControl != null)
+                // {
+                //     KLineChartControl.ContractSelected -= OnContractSelected;
+                // }
                 
                 // 首先处理K线图控件，停止其可能进行的任何操作
                 try 

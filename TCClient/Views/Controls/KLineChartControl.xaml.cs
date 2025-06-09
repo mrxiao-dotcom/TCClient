@@ -29,63 +29,108 @@ namespace TCClient.Views.Controls
         private List<OrderMarker> _orderMarkers;
         private double _canvasWidth;
         private double _canvasHeight;
+        private double _volumeCanvasHeight;
         private double _candleWidth = 8;
         private double _candleSpacing = 2;
         private double _maxPrice;
         private double _minPrice;
         private double _priceRange;
         private double _scaleY;
+        private double _maxVolume;
+        private double _volumeScaleY;
         private IExchangeService _exchangeService;
-        private FavoriteContractsService _favoriteContractsService;
         
-        // 自定义合约列表相关
-        public ObservableCollection<ContractInfo> CustomContracts { get; set; }
-        
-        // 合约选择事件
-        public event EventHandler<string> ContractSelected;
+        // MA设置
+        private int _ma1Period = 20;
+        private bool _showVolume = true;
+        private bool _showMA = true;
 
         public KLineChartControl()
         {
             InitializeComponent();
-            _dataDirectory = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data");
-            Directory.CreateDirectory(_dataDirectory);
+            
+            // 确保数据目录存在
+            _dataDirectory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TCClient", "KLineData");
+            if (!Directory.Exists(_dataDirectory))
+            {
+                Directory.CreateDirectory(_dataDirectory);
+            }
+            
             _orderMarkers = new List<OrderMarker>();
 
-            // 从依赖注入容器获取自选合约服务
-            try
+            // 监听Canvas大小变化 - 添加空值检查
+            if (KLineCanvas != null)
             {
-                var app = Application.Current as App;
-                if (app?.Services != null)
-                {
-                    _favoriteContractsService = app.Services.GetRequiredService<FavoriteContractsService>();
-                }
+                KLineCanvas.SizeChanged += KLineCanvas_SizeChanged;
             }
-            catch (Exception ex)
+            if (VolumeCanvas != null)
             {
-                LogManager.LogException("KLineChart", ex, "获取自选合约服务失败");
+                VolumeCanvas.SizeChanged += VolumeCanvas_SizeChanged;
             }
-
-            // 初始化自定义合约列表
-            CustomContracts = new ObservableCollection<ContractInfo>();
-            _ = InitializeFavoriteContractsAsync();
-            
-            // 设置DataContext
-            this.DataContext = this;
-
-            // 监听Canvas大小变化
-            KLineCanvas.SizeChanged += KLineCanvas_SizeChanged;
         }
 
         public void Initialize(IExchangeService exchangeService)
         {
-            _exchangeService = exchangeService;
+            try
+            {
+                _exchangeService = exchangeService;
+                
+                // 记录初始化状态
+                LogToFile($"K线图控件初始化: ExchangeService = {(exchangeService != null ? "已设置" : "null")}");
+                
+                // 检查关键UI元素是否已加载
+                if (KLineCanvas == null)
+                {
+                    LogToFile("警告: KLineCanvas为null，控件可能未完全加载");
+                }
+                if (VolumeCanvas == null)
+                {
+                    LogToFile("警告: VolumeCanvas为null，控件可能未完全加载");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"K线图控件初始化失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 设置均线周期并重新绘制图表
+        /// </summary>
+        public void SetMAPeriod(int period)
+        {
+            try
+            {
+                if (period > 0 && period <= 200)
+                {
+                    _ma1Period = period;
+                    
+                    // 更新UI中的TextBox显示
+                    if (MA1TextBox != null)
+                    {
+                        MA1TextBox.Text = period.ToString();
+                    }
+                    
+                    // 重新绘制图表
+                    if (_kLineData != null && _kLineData.Any())
+                    {
+                        DrawKLineChart();
+                    }
+                    
+                    LogToFile($"均线周期已更新为: {period}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"设置均线周期失败: {ex.Message}");
+            }
         }
 
         private void KLineCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             try
             {
-                LogToFile($"Canvas大小变化: 旧大小={_canvasWidth}x{_canvasHeight}, 新大小={e.NewSize.Width}x{e.NewSize.Height}");
+                LogToFile($"K线Canvas大小变化: 旧大小={_canvasWidth}x{_canvasHeight}, 新大小={e.NewSize.Width}x{e.NewSize.Height}");
                 _canvasWidth = e.NewSize.Width;
                 _canvasHeight = e.NewSize.Height;
                 if (_kLineData != null && _kLineData.Any())
@@ -95,8 +140,25 @@ namespace TCClient.Views.Controls
             }
             catch (Exception ex)
             {
-                LogToFile($"Canvas大小变化处理时发生错误: {ex.Message}");
+                LogToFile($"K线Canvas大小变化处理时发生错误: {ex.Message}");
                 LogToFile($"异常堆栈: {ex.StackTrace}");
+            }
+        }
+
+        private void VolumeCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            try
+            {
+                LogToFile($"成交额Canvas大小变化: 新大小={e.NewSize.Width}x{e.NewSize.Height}");
+                _volumeCanvasHeight = e.NewSize.Height;
+                if (_kLineData != null && _kLineData.Any() && _showVolume)
+                {
+                    DrawVolumeChart();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"成交额Canvas大小变化处理时发生错误: {ex.Message}");
             }
         }
 
@@ -119,8 +181,6 @@ namespace TCClient.Views.Controls
                 DrawKLineChart();
             }
         }
-
-        // 移除了UpdateDisplayButton_Click和FetchKLineDataButton_Click方法，因为对应的UI控件已被删除
 
         private void UpdateStatusMessage(string message)
         {
@@ -166,6 +226,7 @@ namespace TCClient.Views.Controls
                         if (_kLineData != null && _kLineData.Any())
                         {
                             DrawKLineChart();
+                            if (_showVolume) DrawVolumeChart();
                             UpdateStatusMessage($"已加载缓存数据: {_currentSymbol} {_currentPeriod}，共 {_kLineData.Count} 根K线");
                             return;
                         }
@@ -177,6 +238,7 @@ namespace TCClient.Views.Controls
                 _kLineData = await _exchangeService.GetKLineDataAsync(_currentSymbol, _currentPeriod, _kLineCount);
                 await SaveKLineData();
                 DrawKLineChart();
+                if (_showVolume) DrawVolumeChart();
                 
                 UpdateStatusMessage($"已更新K线数据: {_currentSymbol} {_currentPeriod}，共 {_kLineData.Count} 根K线");
                 LogToFile("K线数据获取成功并已保存");
@@ -200,7 +262,7 @@ namespace TCClient.Views.Controls
             }
             catch (Exception ex)
             {
-                LogToFile($"获取K线数据失败: {ex.Message}");
+                LogToFile($"获取K线数据时发生错误: {ex.Message}");
                 LogToFile($"异常堆栈: {ex.StackTrace}");
                 UpdateStatusMessage($"获取K线数据失败: {ex.Message}");
             }
@@ -221,8 +283,6 @@ namespace TCClient.Views.Controls
                 _ => TimeSpan.FromMinutes(5)
             };
         }
-
-        // 移除了SaveKLineDataButton_Click方法，因为对应的UI控件已被删除
 
         private async Task SaveKLineData()
         {
@@ -247,8 +307,6 @@ namespace TCClient.Views.Controls
                 UpdateStatusMessage($"保存K线数据失败：{ex.Message}");
             }
         }
-
-        // 移除了LoadLocalDataButton_Click方法，因为对应的UI控件已被删除
 
         private void LoadLocalData()
         {
@@ -302,6 +360,14 @@ namespace TCClient.Views.Controls
             try
             {
                 LogToFile($"开始绘制K线图，Canvas大小: {_canvasWidth}x{_canvasHeight}");
+                
+                // 检查Canvas是否可用
+                if (KLineCanvas == null)
+                {
+                    LogToFile("错误: KLineCanvas为null，无法绘制K线图");
+                    return;
+                }
+                
                 KLineCanvas.Children.Clear();
                 if (_kLineData == null || !_kLineData.Any())
                 {
@@ -329,15 +395,15 @@ namespace TCClient.Views.Controls
 
                 LogToFile($"价格范围: 最低={_minPrice}, 最高={_maxPrice}, 范围={_priceRange}, 缩放比例={_scaleY}");
 
+                // ========== 关键修改：统一X轴计算逻辑 ==========
                 // 计算K线宽度和间距，确保所有K线都能显示在Canvas中
-                var availableWidth = _canvasWidth - 40; // 留出左右边距
-                var totalKLineWidth = _kLineData.Count * (_candleWidth + _candleSpacing);
-                var scaleX = Math.Min(1.0, availableWidth / totalKLineWidth);
-                var scaledCandleWidth = _candleWidth * scaleX;
-                var scaledCandleSpacing = _candleSpacing * scaleX;
-                var startX = 20.0; // 左边距
+                var sharedXAxisParams = CalculateSharedXAxisParameters();
+                var scaledCandleWidth = sharedXAxisParams.ScaledWidth;
+                var scaledCandleSpacing = sharedXAxisParams.ScaledSpacing;
+                var startX = sharedXAxisParams.StartX;
+                var scaleX = sharedXAxisParams.ScaleX;
 
-                LogToFile($"可用宽度: {availableWidth}, 缩放比例: {scaleX}, 缩放后K线宽度: {scaledCandleWidth}");
+                LogToFile($"🎯 K线图X轴参数: 可用宽度={sharedXAxisParams.AvailableWidth}, 缩放比例={scaleX:F4}, 缩放后宽度={scaledCandleWidth:F2}, 缩放后间距={scaledCandleSpacing:F2}");
 
                 // 绘制K线
                 for (int i = 0; i < _kLineData.Count; i++)
@@ -398,16 +464,16 @@ namespace TCClient.Views.Controls
                         Canvas.SetTop(timeText, _canvasHeight - 15);
                         KLineCanvas.Children.Add(timeText);
 
-                        // 记录日志
-                        if (i == 0 || i == _kLineData.Count - 1)
+                        // 记录日志，特别关注日线的时间对齐
+                        if (i == 0 || i == _kLineData.Count - 1 || _currentPeriod == "1d")
                         {
-                            LogToFile($"时间标签: {kline.Time.ToString(timeFormat)}");
+                            LogToFile($"⏰ K线时间标签 {i}: 周期={_currentPeriod}, 时间={kline.Time:yyyy-MM-dd HH:mm:ss}, 格式化显示={kline.Time.ToString(timeFormat)}, X轴位置={x:F2}");
                         }
                     }
 
                     if (i == 0 || i == _kLineData.Count - 1)
                     {
-                        LogToFile($"K线 {i}: 时间={kline.Time}, 开盘={kline.Open}, 最高={kline.High}, 最低={kline.Low}, 收盘={kline.Close}, X={x}, Y={bodyY}, 高度={bodyHeight}");
+                        LogToFile($"📊 K线 {i}: 时间={kline.Time:yyyy-MM-dd HH:mm:ss}, 开盘={kline.Open}, 最高={kline.High}, 最低={kline.Low}, 收盘={kline.Close}, X={x:F2}, Y={bodyY:F2}, 高度={bodyHeight:F2}");
                     }
                 }
 
@@ -438,6 +504,12 @@ namespace TCClient.Views.Controls
                 // 绘制网格线
                 DrawGridLines();
 
+                // 绘制均线
+                if (_showMA)
+                {
+                    DrawMovingAverages();
+                }
+
                 LogToFile($"K线图绘制完成，共绘制 {KLineCanvas.Children.Count} 个元素");
             }
             catch (Exception ex)
@@ -445,6 +517,30 @@ namespace TCClient.Views.Controls
                 LogToFile($"绘制K线图时发生错误: {ex.Message}");
                 LogToFile($"异常堆栈: {ex.StackTrace}");
             }
+        }
+
+        /// <summary>
+        /// 计算共享的X轴参数，确保K线图和成交量图使用完全相同的X轴布局
+        /// </summary>
+        private XAxisParameters CalculateSharedXAxisParameters()
+        {
+            // 使用K线Canvas的宽度作为基准，因为它是主要显示区域
+            var canvasWidth = Math.Max(_canvasWidth, 100); // 确保最小宽度
+            var availableWidth = canvasWidth - 40; // 留出左右边距
+            var totalKLineWidth = _kLineData.Count * (_candleWidth + _candleSpacing);
+            var scaleX = Math.Min(1.0, availableWidth / totalKLineWidth);
+            var scaledWidth = _candleWidth * scaleX;
+            var scaledSpacing = _candleSpacing * scaleX;
+            var startX = 20.0; // 左边距
+
+            return new XAxisParameters
+            {
+                AvailableWidth = availableWidth,
+                ScaleX = scaleX,
+                ScaledWidth = scaledWidth,
+                ScaledSpacing = scaledSpacing,
+                StartX = startX
+            };
         }
 
         private void DrawGridLines()
@@ -488,14 +584,13 @@ namespace TCClient.Views.Controls
                     KLineCanvas.Children.Add(priceText);
                 }
 
-                // 绘制垂直网格线
+                // 绘制垂直网格线，使用与K线图相同的X轴参数
                 var timeStep = _kLineData.Count / 5;
-                var scaledCandleWidth = _candleWidth * Math.Min(1.0, (_canvasWidth - 40) / (_kLineData.Count * (_candleWidth + _candleSpacing)));
-                var scaledCandleSpacing = _candleSpacing * Math.Min(1.0, (_canvasWidth - 40) / (_kLineData.Count * (_candleWidth + _candleSpacing)));
+                var sharedXAxisParams = CalculateSharedXAxisParameters();
 
                 for (int i = 0; i <= 5; i++)
                 {
-                    var x = startX + i * timeStep * (scaledCandleWidth + scaledCandleSpacing);
+                    var x = sharedXAxisParams.StartX + i * timeStep * (sharedXAxisParams.ScaledWidth + sharedXAxisParams.ScaledSpacing);
                     var line = new Line
                     {
                         X1 = x,
@@ -606,207 +701,295 @@ namespace TCClient.Views.Controls
             }
         }
 
-        #region 自定义合约列表功能
-
-        /// <summary>
-        /// 异步初始化自选合约列表
-        /// </summary>
-        private async Task InitializeFavoriteContractsAsync()
+        private void DrawVolumeChart()
         {
             try
             {
-                if (_favoriteContractsService != null)
+                // 检查VolumeCanvas是否可用
+                if (VolumeCanvas == null)
                 {
-                    // 从服务获取自选合约列表
-                    var favoriteContracts = await _favoriteContractsService.GetFavoriteContractsAsync();
-                    
-                    // 在UI线程上更新合约列表
-                    await Application.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        CustomContracts.Clear();
-                        foreach (var contract in favoriteContracts)
-                        {
-                            CustomContracts.Add(new ContractInfo
-                            {
-                                Symbol = contract,
-                                PriceChangePercent = 0,
-                                LastPrice = 0,
-                                Volume = 0
-                            });
-                        }
-                    });
-                    
-                    LogManager.Log("KLineChart", $"已加载自选合约列表，共 {favoriteContracts.Count} 个合约");
+                    LogToFile("错误: VolumeCanvas为null，无法绘制成交额图");
+                    return;
                 }
-                else
+                
+                if (!_showVolume || _kLineData == null || !_kLineData.Any() || _volumeCanvasHeight <= 0)
                 {
-                    // 如果服务不可用，使用默认列表
-                    InitializeDefaultContracts();
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogException("KLineChart", ex, "初始化自选合约列表失败，使用默认列表");
-                InitializeDefaultContracts();
-            }
-        }
-
-        /// <summary>
-        /// 初始化默认合约列表（备用方案）
-        /// </summary>
-        private void InitializeDefaultContracts()
-        {
-            var defaultContracts = new[]
-            {
-                "BTC", "ETH", "BNB", "ADA", "XRP", "SOL", "DOT", "DOGE", "AVAX", "MATIC"
-            };
-
-            foreach (var contract in defaultContracts)
-            {
-                CustomContracts.Add(new ContractInfo
-                {
-                    Symbol = contract,
-                    PriceChangePercent = 0,
-                    LastPrice = 0,
-                    Volume = 0
-                });
-            }
-        }
-
-        /// <summary>
-        /// 更新合约列表的价格信息
-        /// </summary>
-        /// <param name="tickers">价格数据</param>
-        public void UpdateContractPrices(IEnumerable<TickerInfo> tickers)
-        {
-            if (tickers == null) return;
-
-            try
-            {
-                foreach (var contract in CustomContracts)
-                {
-                    var fullSymbol = $"{contract.Symbol}USDT";
-                    var ticker = tickers.FirstOrDefault(t => 
-                        t.Symbol.Equals(fullSymbol, StringComparison.OrdinalIgnoreCase));
-                    
-                    if (ticker != null)
-                    {
-                        contract.LastPrice = ticker.LastPrice;
-                        contract.PriceChangePercent = ticker.PriceChangePercent;
-                        contract.Volume = ticker.Volume;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogToFile($"更新合约价格失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 增加自选合约按钮点击事件
-        /// </summary>
-        private async void AddContractButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var inputDialog = new ContractInputDialog();
-                if (inputDialog.ShowDialog() == true)
-                {
-                    var symbol = inputDialog.ContractSymbol.ToUpper();
-                    
-                    // 检查是否已存在
-                    if (CustomContracts.Any(c => c.Symbol.Equals(symbol, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        MessageBox.Show("该合约已在自选列表中", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                        return;
-                    }
-
-                    // 添加到UI列表
-                    CustomContracts.Add(new ContractInfo
-                    {
-                        Symbol = symbol,
-                        PriceChangePercent = 0,
-                        LastPrice = 0,
-                        Volume = 0
-                    });
-
-                    // 保存到本地文件
-                    if (_favoriteContractsService != null)
-                    {
-                        await _favoriteContractsService.AddFavoriteContractAsync(symbol);
-                    }
-
-                    LogManager.Log("KLineChart", $"添加自选合约: {symbol}");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogException("KLineChart", ex, "添加自选合约失败");
-                MessageBox.Show($"添加自选合约失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        /// <summary>
-        /// 删除自选合约按钮点击事件
-        /// </summary>
-        private async void RemoveContractButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var selectedContract = ContractListDataGrid.SelectedItem as ContractInfo;
-                if (selectedContract == null)
-                {
-                    MessageBox.Show("请先选择要删除的合约", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                    VolumeCanvas.Children.Clear();
                     return;
                 }
 
-                var result = MessageBox.Show($"确定要删除合约 {selectedContract.Symbol} 吗？", 
-                    "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                
-                if (result == MessageBoxResult.Yes)
+                LogToFile($"开始绘制成交额图，Canvas大小: {_canvasWidth}x{_volumeCanvasHeight}");
+                VolumeCanvas.Children.Clear();
+
+                // 计算成交额范围 - 优先使用QuoteVolume（成交额），如果为0则使用Volume（成交量）
+                var validQuoteVolumes = _kLineData.Where(k => k.QuoteVolume > 0).ToList();
+                if (validQuoteVolumes.Any())
                 {
-                    // 从UI列表中移除
-                    CustomContracts.Remove(selectedContract);
+                    _maxVolume = (double)validQuoteVolumes.Max(k => k.QuoteVolume);
+                    var minVolume = (double)validQuoteVolumes.Min(k => k.QuoteVolume);
+                    LogToFile($"使用成交额数据，最大值: {_maxVolume:F2}, 最小值: {minVolume:F2}");
+                }
+                else
+                {
+                    _maxVolume = (double)_kLineData.Max(k => k.Volume);
+                    var minVolume = (double)_kLineData.Min(k => k.Volume);
+                    LogToFile($"使用成交量数据，最大值: {_maxVolume:F2}, 最小值: {minVolume:F2}");
+                }
+                var volumeRange = _maxVolume;
+                
+                // 计算缩放比例
+                var verticalMargin = 10.0;
+                _volumeScaleY = (_volumeCanvasHeight - verticalMargin) / _maxVolume;
+
+                // ========== 关键修改：使用与K线图完全相同的X轴参数 ==========
+                var sharedXAxisParams = CalculateSharedXAxisParameters();
+                var scaledWidth = sharedXAxisParams.ScaledWidth;
+                var scaledSpacing = sharedXAxisParams.ScaledSpacing;
+                var startX = sharedXAxisParams.StartX;
+                var scaleX = sharedXAxisParams.ScaleX;
+
+                LogToFile($"🎯 成交额图X轴参数: 可用宽度={sharedXAxisParams.AvailableWidth}, 缩放比例={scaleX:F4}, 缩放后宽度={scaledWidth:F2}, 缩放后间距={scaledSpacing:F2}");
+
+                // 绘制成交额柱状图 - 确保与K线的X轴位置完全对应
+                for (int i = 0; i < _kLineData.Count; i++)
+                {
+                    var kline = _kLineData[i];
+                    var x = startX + i * (scaledWidth + scaledSpacing);
                     
-                    // 从本地文件中移除
-                    if (_favoriteContractsService != null)
+                    // 优先使用QuoteVolume（成交额），如果为0则使用Volume（成交量）
+                    var volumeValue = kline.QuoteVolume > 0 ? (double)kline.QuoteVolume : (double)kline.Volume;
+                    var height = volumeValue * _volumeScaleY;
+                    var y = _volumeCanvasHeight - height - verticalMargin / 2;
+
+                    var volumeBar = new Rectangle
                     {
-                        await _favoriteContractsService.RemoveFavoriteContractAsync(selectedContract.Symbol);
-                    }
+                        Width = scaledWidth,
+                        Height = Math.Max(1, height), // 确保最小高度为1像素
+                        Fill = kline.Close >= kline.Open ? 
+                               new SolidColorBrush(Color.FromArgb(128, 255, 0, 0)) : 
+                               new SolidColorBrush(Color.FromArgb(128, 0, 255, 0)),
+                        Stroke = Brushes.Transparent
+                    };
+                    Canvas.SetLeft(volumeBar, x);
+                    Canvas.SetTop(volumeBar, y);
+                    VolumeCanvas.Children.Add(volumeBar);
                     
-                    LogManager.Log("KLineChart", $"删除自选合约: {selectedContract.Symbol}");
+                    // 记录调试信息
+                    if (i == 0 || i == _kLineData.Count - 1)
+                    {
+                        LogToFile($"📊 成交额柱 {i}: 时间={kline.Time:yyyy-MM-dd HH:mm:ss}, 成交额={volumeValue:F2}, X={x:F2}, 高度={height:F2}");
+                    }
+                }
+
+                LogToFile($"成交额图绘制完成，最大成交额: {_maxVolume:F2}");
+                
+                // 验证K线和成交额的时间对齐
+                LogToFile("🔍 === K线和成交额时间对齐验证 ===");
+                for (int i = 0; i < Math.Min(5, _kLineData.Count); i++)
+                {
+                    var kline = _kLineData[i];
+                    var volumeValue = kline.QuoteVolume > 0 ? kline.QuoteVolume : kline.Volume;
+                    var x = startX + i * (scaledWidth + scaledSpacing);
+                    LogToFile($"🔍 验证 {i}: 时间={kline.Time:yyyy-MM-dd HH:mm:ss}, 成交额={volumeValue:F2}, X轴位置={x:F2}");
+                }
+                LogToFile("🔍 === 验证结束 ===");
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"绘制成交额图时发生错误: {ex.Message}");
+            }
+        }
+
+        private void DrawMovingAverages()
+        {
+            try
+            {
+                if (!_showMA || _kLineData == null || _kLineData.Count < _ma1Period)
+                {
+                    return;
+                }
+
+                // 计算MA数据
+                var ma1Data = CalculateMA(_ma1Period);
+
+                // 绘制MA线
+                DrawMALine(ma1Data, Brushes.Yellow, _ma1Period);
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"绘制均线时发生错误: {ex.Message}");
+            }
+        }
+
+        private List<double> CalculateMA(int period)
+        {
+            var maData = new List<double>();
+            
+            for (int i = 0; i < _kLineData.Count; i++)
+            {
+                if (i < period - 1)
+                {
+                    maData.Add(double.NaN);
+                }
+                else
+                {
+                    var sum = 0.0;
+                    for (int j = i - period + 1; j <= i; j++)
+                    {
+                        sum += (double)_kLineData[j].Close;
+                    }
+                    maData.Add(sum / period);
+                }
+            }
+            
+            return maData;
+        }
+
+        private void DrawMALine(List<double> maData, Brush brush, int period)
+        {
+            try
+            {
+                // 使用与K线图相同的X轴参数
+                var sharedXAxisParams = CalculateSharedXAxisParameters();
+                var scaledWidth = sharedXAxisParams.ScaledWidth;
+                var scaledSpacing = sharedXAxisParams.ScaledSpacing;
+                var startX = sharedXAxisParams.StartX;
+                var verticalMargin = 40.0;
+
+                Point? lastPoint = null;
+
+                for (int i = 0; i < maData.Count; i++)
+                {
+                    if (double.IsNaN(maData[i])) continue;
+
+                    var x = startX + i * (scaledWidth + scaledSpacing) + scaledWidth / 2;
+                    var y = _canvasHeight - verticalMargin - (maData[i] - _minPrice) * _scaleY;
+                    var currentPoint = new Point(x, y);
+
+                    if (lastPoint.HasValue)
+                    {
+                        var line = new Line
+                        {
+                            X1 = lastPoint.Value.X,
+                            Y1 = lastPoint.Value.Y,
+                            X2 = currentPoint.X,
+                            Y2 = currentPoint.Y,
+                            Stroke = brush,
+                            StrokeThickness = 1.5
+                        };
+                        KLineCanvas.Children.Add(line);
+                    }
+
+                    lastPoint = currentPoint;
                 }
             }
             catch (Exception ex)
             {
-                LogManager.LogException("KLineChart", ex, "删除自选合约失败");
-                MessageBox.Show($"删除自选合约失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                LogToFile($"绘制MA{period}线时发生错误: {ex.Message}");
+            }
+        }
+
+        // 事件处理方法
+        private void MATextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            try
+            {
+                if (sender is TextBox textBox)
+                {
+                    if (int.TryParse(textBox.Text, out int value) && value > 0)
+                    {
+                        if (textBox == MA1TextBox)
+                            _ma1Period = value;
+
+                        // 重新绘制图表
+                        if (_kLineData != null && _kLineData.Any())
+                        {
+                            DrawKLineChart();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"MA参数更改时发生错误: {ex.Message}");
+            }
+        }
+
+        private void ShowVolumeCheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ShowVolumeCheckBox == null || VolumeCanvas == null) return;
+                
+                _showVolume = ShowVolumeCheckBox.IsChecked == true;
+                
+                if (_showVolume)
+                {
+                    VolumeCanvas.Visibility = Visibility.Visible;
+                    if (_kLineData != null && _kLineData.Any())
+                    {
+                        DrawVolumeChart();
+                    }
+                }
+                else
+                {
+                    VolumeCanvas.Visibility = Visibility.Collapsed;
+                    VolumeCanvas.Children.Clear();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"切换成交额显示时发生错误: {ex.Message}");
+            }
+        }
+
+        private void ShowMACheckBox_CheckedChanged(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                _showMA = ShowMACheckBox.IsChecked == true;
+                
+                // 重新绘制图表
+                if (_kLineData != null && _kLineData.Any())
+                {
+                    DrawKLineChart();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"切换均线显示时发生错误: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// 合约列表双击事件
+        /// 验证K线和成交量图的时间对齐情况（用于调试）
         /// </summary>
-        private void ContractListDataGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        public void VerifyTimeAlignment()
         {
-            try
+            if (_kLineData == null || !_kLineData.Any())
             {
-                var selectedContract = ContractListDataGrid.SelectedItem as ContractInfo;
-                if (selectedContract != null)
-                {
-                    // 触发合约选择事件
-                    ContractSelected?.Invoke(this, selectedContract.Symbol);
-                    LogManager.Log("KLineChart", $"选择合约: {selectedContract.Symbol}");
-                }
+                LogToFile("⚠️ 无K线数据，无法验证时间对齐");
+                return;
             }
-            catch (Exception ex)
-            {
-                LogManager.LogException("KLineChart", ex, "选择合约失败");
-            }
-        }
 
-        #endregion
+            LogToFile("🔍 === 开始验证K线和成交量时间对齐 ===");
+            
+            var sharedXAxisParams = CalculateSharedXAxisParameters();
+            LogToFile($"🎯 共享X轴参数: 可用宽度={sharedXAxisParams.AvailableWidth:F2}, 缩放比例={sharedXAxisParams.ScaleX:F4}");
+            LogToFile($"🎯 缩放后宽度={sharedXAxisParams.ScaledWidth:F2}, 间距={sharedXAxisParams.ScaledSpacing:F2}, 起始X={sharedXAxisParams.StartX:F2}");
+            
+            // 验证前5个K线的位置
+            for (int i = 0; i < Math.Min(5, _kLineData.Count); i++)
+            {
+                var kline = _kLineData[i];
+                var x = sharedXAxisParams.StartX + i * (sharedXAxisParams.ScaledWidth + sharedXAxisParams.ScaledSpacing);
+                var volumeValue = kline.QuoteVolume > 0 ? kline.QuoteVolume : kline.Volume;
+                
+                LogToFile($"🔍 K线 {i}: 时间={kline.Time:yyyy-MM-dd HH:mm:ss}, X轴位置={x:F2}, 成交额={volumeValue:F2}");
+            }
+            
+            LogToFile("🔍 === 时间对齐验证完成 ===");
+        }
     }
 
     public class OrderMarker
@@ -814,5 +997,17 @@ namespace TCClient.Views.Controls
         public DateTime Time { get; set; }
         public double Price { get; set; }
         public bool IsEntry { get; set; }
+    }
+
+    /// <summary>
+    /// X轴参数类，用于确保K线图和成交量图使用相同的X轴布局
+    /// </summary>
+    internal class XAxisParameters
+    {
+        public double AvailableWidth { get; set; }
+        public double ScaleX { get; set; }
+        public double ScaledWidth { get; set; }
+        public double ScaledSpacing { get; set; }
+        public double StartX { get; set; }
     }
 } 

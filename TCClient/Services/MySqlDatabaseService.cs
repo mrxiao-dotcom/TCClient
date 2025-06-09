@@ -131,6 +131,123 @@ namespace TCClient.Services
             }
         }
 
+        /// <summary>
+        /// 执行数据库操作的通用包装方法，包含超时和异常处理
+        /// </summary>
+        /// <typeparam name="T">返回值类型</typeparam>
+        /// <param name="operation">操作名称</param>
+        /// <param name="databaseOperation">数据库操作函数</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <param name="timeoutSeconds">超时时间（秒），默认30秒</param>
+        /// <returns>操作结果</returns>
+        private async Task<T> ExecuteDatabaseOperationAsync<T>(
+            string operation,
+            Func<MySqlConnection, CancellationToken, Task<T>> databaseOperation,
+            CancellationToken cancellationToken = default,
+            int timeoutSeconds = 30)
+        {
+            LogDatabaseOperationStart(operation);
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                
+                if (string.IsNullOrEmpty(_connectionString))
+                {
+                    throw new InvalidOperationException("数据库连接字符串未设置");
+                }
+
+                // 添加命令超时设置到连接字符串
+                var connectionStringWithTimeout = _connectionString;
+                if (!_connectionString.Contains("Default Command Timeout"))
+                {
+                    connectionStringWithTimeout += $";Default Command Timeout={timeoutSeconds};";
+                }
+                if (!_connectionString.Contains("Connection Timeout"))
+                {
+                    connectionStringWithTimeout += ";Connection Timeout=10;";
+                }
+
+                using var connection = new MySqlConnection(connectionStringWithTimeout);
+                
+                // 使用CancellationTokenSource设置额外的超时控制
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds + 5)); // 给额外5秒缓冲
+                using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                
+                await connection.OpenAsync(combinedCts.Token);
+                
+                var result = await databaseOperation(connection, combinedCts.Token);
+                
+                LogDatabaseOperationEnd(operation, true);
+                return result;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                LogManager.Log("Database", $"数据库操作被用户取消: {operation}");
+                LogDatabaseOperationEnd(operation, false);
+                throw;
+            }
+            catch (OperationCanceledException)
+            {
+                LogManager.Log("Database", $"数据库操作超时: {operation} (超时时间: {timeoutSeconds}秒)");
+                LogDatabaseOperationEnd(operation, false);
+                
+                // 使用友好的异常处理
+                var timeoutEx = new TimeoutException($"数据库操作超时: {operation}");
+                Utils.NetworkExceptionHandler.HandleDatabaseException(timeoutEx, operation, false);
+                
+                throw timeoutEx;
+            }
+            catch (MySqlException mysqlEx)
+            {
+                LogDatabaseOperationError(operation, mysqlEx);
+                LogDatabaseOperationEnd(operation, false);
+                
+                // 使用友好的异常处理
+                Utils.NetworkExceptionHandler.HandleDatabaseException(mysqlEx, operation, false);
+                
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogDatabaseOperationError(operation, ex);
+                LogDatabaseOperationEnd(operation, false);
+                
+                // 检查是否为网络或数据库相关异常
+                if (Utils.NetworkExceptionHandler.IsDatabaseException(ex) || 
+                    Utils.NetworkExceptionHandler.IsNetworkException(ex))
+                {
+                    Utils.NetworkExceptionHandler.HandleDatabaseException(ex, operation, false);
+                }
+                
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 执行无返回值的数据库操作
+        /// </summary>
+        /// <param name="operation">操作名称</param>
+        /// <param name="databaseOperation">数据库操作函数</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <param name="timeoutSeconds">超时时间（秒），默认30秒</param>
+        private async Task ExecuteDatabaseOperationAsync(
+            string operation,
+            Func<MySqlConnection, CancellationToken, Task> databaseOperation,
+            CancellationToken cancellationToken = default,
+            int timeoutSeconds = 30)
+        {
+            await ExecuteDatabaseOperationAsync<object>(
+                operation,
+                async (connection, ct) =>
+                {
+                    await databaseOperation(connection, ct);
+                    return null;
+                },
+                cancellationToken,
+                timeoutSeconds);
+        }
+
         public bool TestConnection(string connectionString)
         {
             var operation = "测试数据库连接";
@@ -260,41 +377,37 @@ namespace TCClient.Services
         public async Task<bool> ValidateUserAsync(string username, string password, CancellationToken cancellationToken = default)
         {
             LogManager.Log("Database", $"开始验证用户: {username}");
+            
             try
             {
-                await EnsureConnectionStringLoadedAsync();
-                LogManager.Log("Database", "连接字符串已加载，准备连接数据库");
+                return await ExecuteDatabaseOperationAsync(
+                    $"验证用户 {username}",
+                    async (connection, ct) =>
+                    {
+                        using var cmd = new MySqlCommand(
+                            "SELECT password_hash FROM users WHERE username = @username",
+                            connection);
+                        cmd.Parameters.AddWithValue("@username", username);
+                        LogManager.Log("Database", $"执行查询: SELECT password_hash FROM users WHERE username = '{username}'");
 
-                using var connection = new MySqlConnection(_connectionString);
-                LogManager.Log("Database", "正在打开数据库连接...");
-                await connection.OpenAsync(cancellationToken);
-                LogManager.Log("Database", "数据库连接已打开");
+                        var result = await cmd.ExecuteScalarAsync(ct);
+                        if (result == null)
+                        {
+                            LogManager.Log("Database", $"用户 {username} 不存在");
+                            return false;
+                        }
 
-                using var cmd = new MySqlCommand(
-                    "SELECT password_hash FROM users WHERE username = @username",
-                    connection);
-                cmd.Parameters.AddWithValue("@username", username);
-                LogManager.Log("Database", $"执行查询: SELECT password_hash FROM users WHERE username = '{username}'");
-
-                var result = await cmd.ExecuteScalarAsync(cancellationToken);
-                if (result == null)
-                {
-                    LogManager.Log("Database", $"用户 {username} 不存在");
-                    return false;
-                }
-
-                var storedHash = result.ToString();
-                var inputHash = HashPassword(password);
-                LogManager.Log("Database", $"密码验证: 存储的哈希值 = {storedHash}, 输入的哈希值 = {inputHash}");
-                
-                var isValid = storedHash == inputHash;
-                LogManager.Log("Database", $"密码验证结果: {(isValid ? "成功" : "失败")}");
-                return isValid;
-            }
-            catch (OperationCanceledException)
-            {
-                LogManager.Log("Database", "用户验证操作被取消");
-                throw;
+                        var storedHash = result.ToString();
+                        var inputHash = HashPassword(password);
+                        LogManager.Log("Database", $"密码验证: 存储的哈希值 = {storedHash}, 输入的哈希值 = {inputHash}");
+                        
+                        var isValid = storedHash == inputHash;
+                        LogManager.Log("Database", $"密码验证结果: {(isValid ? "成功" : "失败")}");
+                        return isValid;
+                    },
+                    cancellationToken,
+                    15 // 用户验证操作设置较短的超时时间
+                );
             }
             catch (Exception ex)
             {
@@ -2926,7 +3039,7 @@ namespace TCClient.Services
                         {
                             command.CommandText = @"
                                 UPDATE position_push_info 
-                                SET status = @status, close_time = @close_time, update_time = @update_time 
+                                SET status = @status, close_time = @close_time 
                                 WHERE id = @id";
                             command.Parameters.AddWithValue("@close_time", closeTime.Value);
                         }
@@ -2934,13 +3047,12 @@ namespace TCClient.Services
                         {
                             command.CommandText = @"
                                 UPDATE position_push_info 
-                                SET status = @status, update_time = @update_time 
+                                SET status = @status 
                                 WHERE id = @id";
                         }
 
                         command.Parameters.AddWithValue("@id", pushId);
                         command.Parameters.AddWithValue("@status", status);
-                        command.Parameters.AddWithValue("@update_time", DateTime.Now);
 
                         var result = await command.ExecuteNonQueryAsync();
                         
@@ -3807,6 +3919,57 @@ namespace TCClient.Services
         }
 
         /// <summary>
+        /// 计算指定合约过去N天的平均成交额（从数据库kline_data表）
+        /// </summary>
+        public async Task<decimal> GetAverageQuoteVolumeAsync(string symbol, int days, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        // 修正查询：移除不存在的interval_type字段，使用日期条件筛选日线数据
+                        // 通过时间间隔判断是否为日线数据（24小时间隔）
+                        command.CommandText = @"
+                            SELECT AVG(quote_volume) as avg_quote_volume, COUNT(*) as data_count
+                            FROM kline_data 
+                            WHERE symbol = @symbol 
+                            AND quote_volume > 0
+                            AND DATE(open_time) >= DATE_SUB(CURDATE(), INTERVAL @days DAY)
+                            AND DATE(open_time) < CURDATE()
+                            AND TIME_TO_SEC(TIMEDIFF(close_time, open_time)) >= 86000";
+                        
+                        command.Parameters.AddWithValue("@symbol", symbol);
+                        command.Parameters.AddWithValue("@days", days);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                var avgQuoteVolume = reader.IsDBNull("avg_quote_volume") ? 0m : reader.GetDecimal("avg_quote_volume");
+                                var dataCount = reader.GetInt32("data_count");
+                                
+                                LogManager.Log("Database", $"获取 {symbol} 过去 {days} 天平均成交额: {avgQuoteVolume:F2}，基于 {dataCount} 条有效数据");
+                                return avgQuoteVolume;
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"获取 {symbol} 平均成交额失败：没有找到数据");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"获取 {symbol} 平均成交额失败");
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// 获取所有状态为open的推仓信息
         /// </summary>
         public async Task<List<PushSummaryInfo>> GetAllPushSummaryInfosAsync()
@@ -3825,8 +3988,8 @@ namespace TCClient.Services
                     {
                         command.CommandText = @"
                             SELECT DISTINCT pp.id as push_id, pp.contract, pp.status, 
-                                   pp.create_time, pp.close_time, pp.single_risk_amount, pp.available_risk_amount
-                            FROM position_pushes pp
+                                   pp.create_time, pp.close_time, pp.account_id
+                            FROM position_push_info pp
                             WHERE pp.status = 'open'
                             ORDER BY pp.create_time DESC";
                         
@@ -3841,8 +4004,8 @@ namespace TCClient.Services
                                     Status = reader.GetString("status"),
                                     CreateTime = reader.GetDateTime("create_time"),
                                     CloseTime = reader.IsDBNull("close_time") ? null : reader.GetDateTime("close_time"),
-                                    SingleRiskAmount = reader.GetDecimal("single_risk_amount"),
-                                    AvailableRiskAmount = reader.GetDecimal("available_risk_amount"),
+                                    SingleRiskAmount = 0, // 默认值，后续可以从账户信息计算
+                                    AvailableRiskAmount = 0, // 默认值，后续可以从账户信息计算
                                     Orders = new List<SimulationOrder>()
                                 };
                                 
@@ -3863,7 +4026,7 @@ namespace TCClient.Services
                                        so.real_profit, so.floating_pnl, so.contract_size,
                                        so.highest_price, so.last_update_time
                                 FROM simulation_orders so
-                                INNER JOIN push_order_relations por ON so.id = por.order_id
+                                INNER JOIN position_push_order_rel por ON so.id = por.order_id
                                 WHERE por.push_id = @pushId
                                 ORDER BY so.open_time DESC";
                             

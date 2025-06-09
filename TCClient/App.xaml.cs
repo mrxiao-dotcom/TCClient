@@ -44,14 +44,42 @@ public partial class App : Application
             {
                 var ex = e.ExceptionObject as Exception;
                 LogManager.LogException("App.UnhandledException", ex);
-                MessageBox.Show($"未处理的异常: {ex?.GetType().FullName}\n{ex?.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                
+                // 检查是否为网络异常，使用友好的错误提示
+                if (Utils.NetworkExceptionHandler.IsNetworkException(ex))
+                {
+                    Utils.NetworkExceptionHandler.ShowNetworkExceptionDialog(
+                        Current.MainWindow, ex, "应用程序运行时发生网络异常", false);
+                }
+                else
+                {
+                    MessageBox.Show($"未处理的异常: {ex?.GetType().FullName}\n{ex?.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             };
             
             DispatcherUnhandledException += (s, e) =>
             {
                 var ex = e.Exception;
                 LogManager.LogException("App.DispatcherUnhandledException", ex);
-                MessageBox.Show($"UI线程未处理的异常: {ex.GetType().FullName}\n{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                
+                // 检查是否为数据库异常，优先处理
+                if (Utils.NetworkExceptionHandler.IsDatabaseException(ex))
+                {
+                    LogManager.Log("App", "检测到UI线程数据库异常，使用友好提示处理");
+                    Utils.NetworkExceptionHandler.HandleDatabaseException(ex, "UI操作时的数据库操作", true);
+                }
+                // 检查是否为网络异常，使用友好的错误提示
+                else if (Utils.NetworkExceptionHandler.IsNetworkException(ex))
+                {
+                    LogManager.Log("App", "检测到UI线程网络异常，使用友好提示处理");
+                    Utils.NetworkExceptionHandler.ShowNetworkExceptionDialog(
+                        Current.MainWindow, ex, "UI操作时发生网络异常", false);
+                }
+                else
+                {
+                    LogManager.Log("App", $"UI线程未处理的一般异常: {ex.GetType().FullName}");
+                    MessageBox.Show($"UI线程未处理的异常: {ex.GetType().FullName}\n{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
                 e.Handled = true;
             };
             
@@ -79,6 +107,21 @@ public partial class App : Application
                 else
                 {
                     LogManager.LogException("App.UnobservedTaskException", ex);
+                    
+                    // 检查是否为数据库异常，优先处理
+                    if (Utils.NetworkExceptionHandler.IsDatabaseException(ex))
+                    {
+                        LogManager.Log("App", "检测到未观察的数据库异常，已使用友好提示处理");
+                        // 对于后台任务的数据库异常，我们记录日志但不显示对话框，避免干扰用户
+                        Utils.NetworkExceptionHandler.HandleDatabaseException(ex, "后台任务数据库操作", false);
+                    }
+                    // 检查是否为网络异常，提供友好的用户提示
+                    else if (Utils.NetworkExceptionHandler.IsNetworkException(ex))
+                    {
+                        LogManager.Log("App", "检测到未观察的网络异常，已使用友好提示处理");
+                        // 对于后台任务的网络异常，我们记录日志但不显示对话框，避免干扰用户
+                        Utils.NetworkExceptionHandler.LogNetworkException("后台任务", ex);
+                    }
                 }
                 
                 e.SetObserved();
@@ -153,7 +196,13 @@ public partial class App : Application
         services.AddSingleton<AccountConfigViewModel>();
         services.AddSingleton<AddAccountViewModel>();
         services.AddSingleton<RegisterViewModel>();
-        services.AddSingleton<RankingViewModel>();
+        services.AddSingleton<RankingViewModel>(provider =>
+        {
+            var databaseService = provider.GetRequiredService<IDatabaseService>();
+            var messageService = provider.GetRequiredService<IMessageService>();
+            var exchangeService = provider.GetRequiredService<IExchangeService>();
+            return new RankingViewModel(databaseService, messageService, exchangeService);
+        });
         services.AddTransient<OrderListViewModel>();
         services.AddTransient<PushStatisticsViewModel>();
         services.AddTransient<AccountQueryViewModel>();
@@ -233,6 +282,7 @@ public partial class App : Application
             ServiceLocator.RegisterService<IDatabaseService>(_serviceProvider.GetRequiredService<IDatabaseService>());
             ServiceLocator.RegisterService<IMessageService>(_serviceProvider.GetRequiredService<IMessageService>());
             ServiceLocator.RegisterService<IUserService>(_serviceProvider.GetRequiredService<IUserService>());
+            ServiceLocator.RegisterService<IExchangeService>(_serviceProvider.GetRequiredService<IExchangeService>());
             LogManager.Log("App", "ServiceLocator服务注册完成");
 
             // 创建主窗口实例但不显示
@@ -404,18 +454,18 @@ public partial class App : Application
                 if (conditionalOrderService != null)
                 {
                     conditionalOrderService.Stop();
-                    LogManager.Log("App", "条件单监控服务已停止");
+                    conditionalOrderService.Dispose();
+                    LogManager.Log("App", "条件单监控服务已停止并释放");
                 }
                 
                 var stopLossMonitorService = _serviceProvider.GetService<StopLossMonitorService>();
                 if (stopLossMonitorService != null)
                 {
                     stopLossMonitorService.Stop();
-                    LogManager.Log("App", "止损监控服务已停止");
+                    stopLossMonitorService.Dispose();
+                    LogManager.Log("App", "止损监控服务已停止并释放");
                 }
                 
-                // 给服务一点时间完成清理
-                Task.Delay(500).Wait();
                 LogManager.Log("App", "监控服务清理完成");
             }
             catch (Exception serviceEx)
@@ -423,48 +473,159 @@ public partial class App : Application
                 LogManager.LogException("App", serviceEx, "停止监控服务失败");
             }
             
-            // 确保所有数据库连接被关闭
-            var databaseService = _serviceProvider.GetService<IDatabaseService>();
-            if (databaseService != null)
+            // 停止所有后台线程和定时器
+            try
             {
-                // 使用同步调用避免异步过程被截断
-                try
+                LogManager.Log("App", "开始清理后台线程和定时器...");
+                
+                // 清理可能的定时器和后台任务
+                foreach (Window window in Application.Current.Windows)
                 {
-                    var task = databaseService.DisconnectAsync();
-                    task.Wait(1000); // 给数据库断开连接一点时间，但不要无限等待
+                    if (window is Views.FindOpportunityWindow findOpportunityWindow)
+                    {
+                        // 强制关闭FindOpportunityWindow中的定时器和后台任务
+                        window.Close();
+                    }
                 }
-                catch (Exception dbEx)
+                
+                LogManager.Log("App", "后台线程清理完成");
+            }
+            catch (Exception threadEx)
+            {
+                LogManager.LogException("App", threadEx, "清理后台线程失败");
+            }
+            
+            // 确保所有数据库连接被关闭
+            try
+            {
+                LogManager.Log("App", "开始关闭数据库连接...");
+                var databaseService = _serviceProvider.GetService<IDatabaseService>();
+                if (databaseService != null)
                 {
-                    LogManager.LogException("App.DisconnectDatabase", dbEx);
+                    // 使用同步调用避免异步过程被截断
+                    var disconnectTask = databaseService.DisconnectAsync();
+                    if (!disconnectTask.Wait(2000)) // 最多等待2秒
+                    {
+                        LogManager.Log("App", "数据库断开连接超时，强制继续");
+                    }
+                    else
+                    {
+                        LogManager.Log("App", "数据库连接已正常关闭");
+                    }
                 }
+            }
+            catch (Exception dbEx)
+            {
+                LogManager.LogException("App", dbEx, "关闭数据库连接失败");
             }
             
             // 确保所有HttpClient实例被释放
-            if (_serviceProvider.GetService<IExchangeServiceFactory>() is IDisposable exchangeFactory)
+            try
             {
-                exchangeFactory.Dispose();
+                LogManager.Log("App", "开始释放网络资源...");
+                var exchangeServiceFactory = _serviceProvider.GetService<IExchangeServiceFactory>();
+                if (exchangeServiceFactory is IDisposable disposableFactory)
+                {
+                    disposableFactory.Dispose();
+                    LogManager.Log("App", "交易所服务工厂已释放");
+                }
+                
+                var exchangeService = _serviceProvider.GetService<IExchangeService>();
+                if (exchangeService is IDisposable disposableExchange)
+                {
+                    disposableExchange.Dispose();
+                    LogManager.Log("App", "交易所服务已释放");
+                }
+            }
+            catch (Exception httpEx)
+            {
+                LogManager.LogException("App", httpEx, "释放网络资源失败");
             }
             
-            // 告诉GC立即执行垃圾回收，确保资源释放
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
+            // 强制垃圾回收
+            try
+            {
+                LogManager.Log("App", "执行垃圾回收...");
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                LogManager.Log("App", "垃圾回收完成");
+            }
+            catch (Exception gcEx)
+            {
+                LogManager.LogException("App", gcEx, "垃圾回收失败");
+            }
+            
+            // 释放服务提供者
+            try
+            {
+                LogManager.Log("App", "释放服务提供者...");
+                if (_serviceProvider is IDisposable disposableProvider)
+                {
+                    disposableProvider.Dispose();
+                    LogManager.Log("App", "服务提供者已释放");
+                }
+            }
+            catch (Exception serviceProviderEx)
+            {
+                LogManager.LogException("App", serviceProviderEx, "释放服务提供者失败");
+            }
             
             // 刷新日志
-            LogManager.FlushLogs();
-            
-            // 最后才释放服务提供者
-            base.OnExit(e);
-            if (_serviceProvider is IDisposable disposable)
+            try
             {
-                disposable.Dispose();
+                LogManager.FlushLogs();
+            }
+            catch (Exception logEx)
+            {
+                // 忽略日志刷新错误
             }
             
-            LogManager.Log("App", "OnExit方法执行完成");
+            LogManager.Log("App", "OnExit方法执行完成，调用base.OnExit");
+            
+            // 调用基类方法
+            base.OnExit(e);
+            
+            LogManager.Log("App", "base.OnExit完成");
         }
         catch (Exception ex)
         {
             LogManager.LogException("App.OnExit", ex);
-            // 即使清理过程出错，也不影响应用程序退出
+        }
+        finally
+        {
+            try
+            {
+                // 最后的保险措施：如果程序仍然没有退出，强制终止进程
+                LogManager.Log("App", "执行最终清理检查...");
+                
+                // 给程序一点时间正常退出
+                var exitTask = Task.Run(() =>
+                {
+                    System.Threading.Thread.Sleep(3000); // 等待3秒
+                    
+                    // 如果3秒后程序还在运行，强制退出
+                    LogManager.Log("App", "程序退出超时，强制终止进程");
+                    Environment.Exit(0);
+                });
+                
+                LogManager.Log("App", "最终清理检查完成");
+            }
+            catch (Exception finalEx)
+            {
+                // 最后的异常也要忽略，确保程序能够退出
+                try
+                {
+                    LogManager.LogException("App.OnExit.Finally", finalEx);
+                }
+                catch
+                {
+                    // 彻底忽略
+                }
+                
+                // 强制退出
+                Environment.Exit(1);
+            }
         }
     }
 

@@ -31,42 +31,66 @@ namespace TCClient.Views
                 // 窗口关闭事件处理 - 与菜单"退出"功能保持一致
                 this.Closing += (s, e) => 
                 {
-                    if (!_userInitiatedClose && !TCClient.Utils.AppSession.UserRequestedExit)
+                    try
                     {
-                        Utils.LogManager.Log("MainWindow", "Closing事件：用户点击关闭按钮，执行退出确认流程");
-                        e.Cancel = true; // 先取消关闭
-                        
-                        // 调用与菜单"退出"相同的确认流程
-                        if (DataContext is MainViewModel viewModel)
+                        if (!_userInitiatedClose && !TCClient.Utils.AppSession.UserRequestedExit)
                         {
-                            Utils.LogManager.Log("MainWindow", "调用MainViewModel的ExitCommand");
-                            if (viewModel.ExitCommand.CanExecute(null))
+                            Utils.LogManager.Log("MainWindow", "Closing事件：用户点击关闭按钮，执行退出确认流程");
+                            e.Cancel = true; // 先取消关闭
+                            
+                            // 使用Dispatcher.BeginInvoke延迟执行确认对话框，避免在Closing事件中直接操作窗口
+                            Dispatcher.BeginInvoke(new Action(() =>
                             {
-                                viewModel.ExitCommand.Execute(null);
-                            }
+                                try
+                                {
+                                    // 调用与菜单"退出"相同的确认流程
+                                    if (DataContext is MainViewModel viewModel)
+                                    {
+                                        Utils.LogManager.Log("MainWindow", "调用MainViewModel的ExitCommand");
+                                        if (viewModel.ExitCommand.CanExecute(null))
+                                        {
+                                            viewModel.ExitCommand.Execute(null);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        Utils.LogManager.Log("MainWindow", "DataContext不是MainViewModel，直接执行退出确认");
+                                        // 如果无法获取ViewModel，直接执行简单的确认对话框
+                                        var result = MessageBox.Show(
+                                            "确定要退出应用程序吗？",
+                                            "确认",
+                                            MessageBoxButton.YesNo,
+                                            MessageBoxImage.Question);
+                                        
+                                        if (result == MessageBoxResult.Yes)
+                                        {
+                                            Utils.LogManager.Log("MainWindow", "用户确认退出，设置退出标志");
+                                            _userInitiatedClose = true;
+                                            TCClient.Utils.AppSession.UserRequestedExit = true;
+                                            Close(); // 重新调用关闭
+                                        }
+                                    }
+                                }
+                                catch (Exception dialogEx)
+                                {
+                                    Utils.LogManager.LogException("MainWindow", dialogEx, "延迟执行确认对话框时发生异常");
+                                    // 如果确认对话框失败，直接允许关闭
+                                    _userInitiatedClose = true;
+                                    TCClient.Utils.AppSession.UserRequestedExit = true;
+                                    Close();
+                                }
+                            }), System.Windows.Threading.DispatcherPriority.Background);
                         }
                         else
                         {
-                            Utils.LogManager.Log("MainWindow", "DataContext不是MainViewModel，直接执行退出确认");
-                            // 如果无法获取ViewModel，直接执行简单的确认对话框
-                            var result = MessageBox.Show(
-                                "确定要退出应用程序吗？",
-                                "确认",
-                                MessageBoxButton.YesNo,
-                                MessageBoxImage.Question);
-                            
-                            if (result == MessageBoxResult.Yes)
-                            {
-                                Utils.LogManager.Log("MainWindow", "用户确认退出，设置退出标志");
-                                _userInitiatedClose = true;
-                                TCClient.Utils.AppSession.UserRequestedExit = true;
-                                Close(); // 重新调用关闭
-                            }
+                            Utils.LogManager.Log("MainWindow", "Closing事件：用户请求的关闭，允许继续");
                         }
                     }
-                    else
+                    catch (Exception closingEx)
                     {
-                        Utils.LogManager.Log("MainWindow", "Closing事件：用户请求的关闭，允许继续");
+                        Utils.LogManager.LogException("MainWindow", closingEx, "处理Closing事件时发生异常");
+                        // 发生异常时允许窗口关闭，避免程序无法退出
+                        e.Cancel = false;
                     }
                 };
                 Utils.LogManager.Log("MainWindow", "已添加Closing事件保护");
