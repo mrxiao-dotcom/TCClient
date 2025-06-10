@@ -519,5 +519,59 @@ namespace TCClient.Utils
 
             return MessageBox.Show(owner, message, "数据获取失败", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         }
+
+        /// <summary>
+        /// 显示止损监控服务网络异常的专用提示
+        /// </summary>
+        /// <param name="contractName">合约名称</param>
+        /// <param name="isFirstTime">是否首次显示</param>
+        public static void ShowStopLossMonitorNetworkIssue(string contractName = "", bool isFirstTime = true)
+        {
+            try
+            {
+                // 避免频繁弹窗，如果不是首次显示且时间间隔太短则跳过
+                var lastShowTime = _lastStopLossWarningTime;
+                var now = DateTime.Now;
+                if (!isFirstTime && (now - lastShowTime).TotalMinutes < 5)
+                {
+                    AppSession.Log("[止损监控] 网络提示间隔过短，跳过弹窗显示");
+                    return;
+                }
+                _lastStopLossWarningTime = now;
+
+                Application.Current?.Dispatcher?.Invoke(() =>
+                {
+                    var contractInfo = string.IsNullOrEmpty(contractName) ? "" : $"合约 {contractName} ";
+                    var message = $"🛡️ 止损监控网络异常\n\n" +
+                                $"⚠️ {contractInfo}价格获取失败，可能影响止损功能\n\n" +
+                                "🔍 可能的原因：\n" +
+                                "• 网络连接不稳定或中断\n" +
+                                "• Binance API服务器响应慢\n" +
+                                "• 防火墙或代理服务器阻止连接\n" +
+                                "• 合约代码不正确或已下市\n\n" +
+                                "💡 安全建议：\n" +
+                                "• 程序将自动重试获取价格\n" +
+                                "• 如网络问题持续，建议手动检查持仓\n" +
+                                "• 可使用'设置' > '网络诊断'检查连接\n" +
+                                "• 建议设置手机APP备用监控\n\n" +
+                                "ℹ️ 止损监控会继续运行并定期重试";
+
+                    MessageBox.Show(
+                        message,
+                        "止损监控网络异常",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                });
+
+                AppSession.Log($"[止损监控] 显示网络异常提示，合约: {contractName}");
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"[止损监控] 显示网络异常提示失败: {ex.Message}");
+            }
+        }
+
+        // 记录上次显示止损监控警告的时间，避免频繁弹窗
+        private static DateTime _lastStopLossWarningTime = DateTime.MinValue;
     }
 } 

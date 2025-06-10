@@ -217,6 +217,7 @@ namespace TCClient.ViewModels
         public ICommand ShowPushStatisticsCommand { get; }
         public ICommand ShowAccountQueryCommand { get; }
         public ICommand ShowNetworkDiagnosticCommand { get; }
+        public ICommand ShowServiceManagerCommand { get; }
 
         public MainViewModel(
             IDatabaseService databaseService,
@@ -252,6 +253,7 @@ namespace TCClient.ViewModels
             ShowPushStatisticsCommand = new RelayCommand(ShowPushStatistics);
             ShowAccountQueryCommand = new RelayCommand(ShowAccountQuery);
             ShowNetworkDiagnosticCommand = new RelayCommand(ShowNetworkDiagnostic);
+            ShowServiceManagerCommand = new RelayCommand(ShowServiceManager);
 
             // 初始化状态
             StatusMessage = "就绪";
@@ -1036,20 +1038,37 @@ namespace TCClient.ViewModels
         {
             try
             {
-                // 创建网络诊断窗口
-                var window = new NetworkDiagnosticWindow()
-                {
-                    Owner = Application.Current.MainWindow
-                };
+                _messageService.ShowMessage(
+                    "网络诊断功能正在开发中...",
+                    "提示",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                _messageService.ShowMessage(
+                    $"打开网络诊断窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
 
-                // 显示窗口
+        private void ShowServiceManager()
+        {
+            try
+            {
+                LogMenuError(nameof(ShowServiceManager), null);
+                var window = new Views.ServiceManagerWindow();
+                window.Owner = Application.Current.MainWindow;
+                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
                 window.ShowDialog();
             }
             catch (Exception ex)
             {
-                LogMenuError(nameof(ShowNetworkDiagnostic), ex);
+                LogMenuError(nameof(ShowServiceManager), ex);
                 _messageService.ShowMessage(
-                    $"打开网络诊断窗口失败：{ex.Message}",
+                    $"打开服务管理器失败：{ex.Message}",
                     "错误",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -1075,10 +1094,10 @@ namespace TCClient.ViewModels
             try
             {
                 var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
-                var logMessage = $"[{timestamp}] 菜单方法 {methodName} 执行失败: {ex.Message}\n" +
-                               $"异常类型: {ex.GetType().FullName}\n" +
-                               $"堆栈跟踪: {ex.StackTrace}\n" +
-                               $"内部异常: {ex.InnerException?.Message}\n" +
+                var logMessage = $"[{timestamp}] 菜单方法 {methodName} 执行失败: {ex?.Message}\n" +
+                               $"异常类型: {ex?.GetType().FullName}\n" +
+                               $"堆栈跟踪: {ex?.StackTrace}\n" +
+                               $"内部异常: {ex?.InnerException?.Message}\n" +
                                $"{new string('-', 80)}\n";
                 File.AppendAllText(MenuLogFilePath, logMessage);
             }

@@ -111,14 +111,35 @@ namespace TCClient.Services
                                 string symbol = symbolGroup.Key;
                                 List<ConditionalOrder> orders = symbolGroup.Value;
                                 
-                                // 获取最新价格
-                                decimal currentPrice = await GetLatestPriceAsync(symbol);
-                                _lastPrices[symbol] = currentPrice;
-                                
-                                // 检查该交易对的所有条件单
-                                foreach (var order in orders)
+                                try
                                 {
-                                    await CheckAndExecuteConditionalOrderAsync(order, currentPrice);
+                                    // 获取最新价格
+                                    decimal currentPrice = await GetLatestPriceAsync(symbol);
+                                    
+                                    // 如果价格为0，说明获取失败，跳过本次处理
+                                    if (currentPrice <= 0)
+                                    {
+                                        LogManager.Log("ConditionalOrderService", $"合约 {symbol} 价格获取失败（价格为0），跳过 {orders.Count} 个条件单的检查");
+                                        continue;
+                                    }
+                                    
+                                    // 更新价格缓存
+                                    _lastPrices[symbol] = currentPrice;
+                                    
+                                    LogManager.Log("ConditionalOrderService", $"合约 {symbol} 当前价格: {currentPrice}，检查 {orders.Count} 个条件单");
+                                    
+                                    // 检查该交易对的所有条件单
+                                    foreach (var order in orders)
+                                    {
+                                        await CheckAndExecuteConditionalOrderAsync(order, currentPrice);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    LogManager.LogException("ConditionalOrderService", ex, $"处理合约 {symbol} 时发生错误");
+                                    
+                                    // 即使单个合约处理失败，也要继续处理其他合约
+                                    LogManager.Log("ConditionalOrderService", $"合约 {symbol} 处理失败，继续处理其他合约");
                                 }
                             }
                         }
@@ -262,16 +283,50 @@ namespace TCClient.Services
         {
             try
             {
+                // 格式化合约名称，确保有USDT后缀
+                string formattedSymbol = symbol.ToUpper();
+                if (!formattedSymbol.EndsWith("USDT"))
+                {
+                    formattedSymbol = $"{formattedSymbol}USDT";
+                }
+
                 // 通过交易所API获取最新价格
-                var ticker = await _exchangeService.GetTickerAsync(symbol);
-                return ticker.LastPrice;
+                var ticker = await _exchangeService.GetTickerAsync(formattedSymbol);
+                
+                if (ticker != null && ticker.LastPrice > 0)
+                {
+                    // 成功获取价格，更新缓存
+                    _lastPrices[symbol] = ticker.LastPrice;
+                    return ticker.LastPrice;
+                }
+                
+                // ticker为null或价格无效，使用缓存价格
+                if (_lastPrices.ContainsKey(symbol))
+                {
+                    LogManager.Log("ConditionalOrderService", $"获取 {symbol} 价格失败(ticker为null)，使用缓存价格: {_lastPrices[symbol]}");
+                    return _lastPrices[symbol];
+                }
+                
+                // 既没有获取到价格，也没有缓存价格
+                LogManager.Log("ConditionalOrderService", $"⚠️ 无法获取合约 {symbol} 的价格，且无缓存价格可用");
+                LogManager.Log("ConditionalOrderService", "这通常是由网络连接问题或API服务器响应慢造成的");
+                LogManager.Log("ConditionalOrderService", $"跳过合约 {symbol} 的条件单检查，等待下次循环重试");
+                
+                return 0; // 返回0表示价格获取失败
             }
             catch (Exception ex)
             {
-                LogManager.LogException("ConditionalOrderService", ex, $"获取 {symbol} 最新价格失败");
+                LogManager.LogException("ConditionalOrderService", ex, $"获取 {symbol} 最新价格时发生异常");
                 
-                // 如果获取失败，使用上次的价格，如果没有则返回0
-                return _lastPrices.ContainsKey(symbol) ? _lastPrices[symbol] : 0;
+                // 如果获取失败，使用缓存价格
+                if (_lastPrices.ContainsKey(symbol))
+                {
+                    LogManager.Log("ConditionalOrderService", $"发生异常后使用缓存价格: {_lastPrices[symbol]}");
+                    return _lastPrices[symbol];
+                }
+                
+                LogManager.Log("ConditionalOrderService", $"合约 {symbol} 价格获取异常且无缓存，返回0跳过本次检查");
+                return 0; // 返回0表示价格获取失败
             }
         }
 

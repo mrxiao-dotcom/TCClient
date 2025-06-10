@@ -122,6 +122,13 @@ public partial class App : Application
                         // 对于后台任务的网络异常，我们记录日志但不显示对话框，避免干扰用户
                         Utils.NetworkExceptionHandler.LogNetworkException("后台任务", ex);
                     }
+                    // 检查是否为止损监控服务的异常
+                    else if (ex.StackTrace?.Contains("StopLossMonitorService") == true)
+                    {
+                        LogManager.Log("App", "检测到止损监控服务的未观察异常，已记录但不影响程序运行");
+                        LogManager.Log("App", $"止损监控异常详情: {ex.GetType().Name} - {ex.Message}");
+                        // 对于止损监控的异常，只记录日志，不显示用户对话框
+                    }
                 }
                 
                 e.SetObserved();
@@ -186,6 +193,9 @@ public partial class App : Application
         // 注册止损监控服务
         services.AddSingleton<StopLossMonitorService>();
         
+        // 注册后台服务管理器
+        services.AddSingleton<BackgroundServiceManager>();
+        
         // 注册自选合约服务
         services.AddSingleton<FavoriteContractsService>();
 
@@ -225,28 +235,16 @@ public partial class App : Application
             LogManager.Log("App", "应用程序启动开始");
             base.OnStartup(e);
 
-            // 启动条件单服务
+            // 启动后台服务管理器
             try
             {
-                var conditionalOrderService = _serviceProvider.GetRequiredService<ConditionalOrderService>();
-                conditionalOrderService.Start();
-                LogManager.Log("App", "条件单监控服务已启动");
+                var backgroundServiceManager = _serviceProvider.GetRequiredService<BackgroundServiceManager>();
+                backgroundServiceManager.StartAllEnabledServices();
+                LogManager.Log("App", "后台服务管理器已启动");
             }
             catch (Exception serviceEx)
             {
-                LogManager.LogException("App", serviceEx, "启动条件单服务失败");
-            }
-
-            // 启动止损监控服务
-            try
-            {
-                var stopLossMonitorService = _serviceProvider.GetRequiredService<StopLossMonitorService>();
-                stopLossMonitorService.Start();
-                LogManager.Log("App", "止损监控服务已启动");
-            }
-            catch (Exception serviceEx)
-            {
-                LogManager.LogException("App", serviceEx, "启动止损监控服务失败");
+                LogManager.LogException("App", serviceEx, "启动后台服务管理器失败");
             }
 
             // 记录当前ShutdownMode状态
@@ -445,32 +443,24 @@ public partial class App : Application
         {
             LogManager.Log("App", "OnExit方法开始执行");
             
-            // 停止监控服务
+            // 停止后台服务管理器
             try
             {
-                LogManager.Log("App", "开始停止监控服务...");
+                LogManager.Log("App", "开始停止后台服务管理器...");
                 
-                var conditionalOrderService = _serviceProvider.GetService<ConditionalOrderService>();
-                if (conditionalOrderService != null)
+                var backgroundServiceManager = _serviceProvider.GetService<BackgroundServiceManager>();
+                if (backgroundServiceManager != null)
                 {
-                    conditionalOrderService.Stop();
-                    conditionalOrderService.Dispose();
-                    LogManager.Log("App", "条件单监控服务已停止并释放");
+                    backgroundServiceManager.StopAllServices();
+                    backgroundServiceManager.Dispose();
+                    LogManager.Log("App", "后台服务管理器已停止并释放");
                 }
                 
-                var stopLossMonitorService = _serviceProvider.GetService<StopLossMonitorService>();
-                if (stopLossMonitorService != null)
-                {
-                    stopLossMonitorService.Stop();
-                    stopLossMonitorService.Dispose();
-                    LogManager.Log("App", "止损监控服务已停止并释放");
-                }
-                
-                LogManager.Log("App", "监控服务清理完成");
+                LogManager.Log("App", "后台服务清理完成");
             }
             catch (Exception serviceEx)
             {
-                LogManager.LogException("App", serviceEx, "停止监控服务失败");
+                LogManager.LogException("App", serviceEx, "停止后台服务管理器失败");
             }
             
             // 停止所有后台线程和定时器
