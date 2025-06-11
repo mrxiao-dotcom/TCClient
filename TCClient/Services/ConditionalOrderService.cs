@@ -113,8 +113,8 @@ namespace TCClient.Services
                                 
                                 try
                                 {
-                                    // 获取最新价格
-                                    decimal currentPrice = await GetLatestPriceAsync(symbol);
+                                // 获取最新价格
+                                decimal currentPrice = await GetLatestPriceAsync(symbol);
                                     
                                     // 如果价格为0，说明获取失败，跳过本次处理
                                     if (currentPrice <= 0)
@@ -124,14 +124,14 @@ namespace TCClient.Services
                                     }
                                     
                                     // 更新价格缓存
-                                    _lastPrices[symbol] = currentPrice;
+                                _lastPrices[symbol] = currentPrice;
                                     
                                     LogManager.Log("ConditionalOrderService", $"合约 {symbol} 当前价格: {currentPrice}，检查 {orders.Count} 个条件单");
-                                    
-                                    // 检查该交易对的所有条件单
-                                    foreach (var order in orders)
-                                    {
-                                        await CheckAndExecuteConditionalOrderAsync(order, currentPrice);
+                                
+                                // 检查该交易对的所有条件单
+                                foreach (var order in orders)
+                                {
+                                    await CheckAndExecuteConditionalOrderAsync(order, currentPrice);
                                     }
                                 }
                                 catch (Exception ex)
@@ -297,7 +297,7 @@ namespace TCClient.Services
                 {
                     // 成功获取价格，更新缓存
                     _lastPrices[symbol] = ticker.LastPrice;
-                    return ticker.LastPrice;
+                return ticker.LastPrice;
                 }
                 
                 // ticker为null或价格无效，使用缓存价格

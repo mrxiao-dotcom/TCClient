@@ -218,6 +218,7 @@ namespace TCClient.ViewModels
         public ICommand ShowAccountQueryCommand { get; }
         public ICommand ShowNetworkDiagnosticCommand { get; }
         public ICommand ShowServiceManagerCommand { get; }
+        public ICommand ShowMarketOverviewCommand { get; }
 
         public MainViewModel(
             IDatabaseService databaseService,
@@ -254,6 +255,7 @@ namespace TCClient.ViewModels
             ShowAccountQueryCommand = new RelayCommand(ShowAccountQuery);
             ShowNetworkDiagnosticCommand = new RelayCommand(ShowNetworkDiagnostic);
             ShowServiceManagerCommand = new RelayCommand(ShowServiceManager);
+            ShowMarketOverviewCommand = new RelayCommand(ShowMarketOverview);
 
             // 初始化状态
             StatusMessage = "就绪";
@@ -535,9 +537,9 @@ namespace TCClient.ViewModels
                     }
                     
                     // 设置退出标志
-                    AppSession.UserRequestedExit = true;
-                    LogToFile("设置AppSession.UserRequestedExit = true");
-                    
+                        AppSession.UserRequestedExit = true;
+                        LogToFile("设置AppSession.UserRequestedExit = true");
+                        
                     // 使用Dispatcher.BeginInvoke安全地关闭主窗口
                     Application.Current.Dispatcher.BeginInvoke(new Action(() =>
                     {
@@ -546,14 +548,14 @@ namespace TCClient.ViewModels
                             if (Application.Current.MainWindow is Views.MainWindow mainWindow)
                             {
                                 LogToFile("找到主窗口，调用CloseByUser方法");
-                                mainWindow.CloseByUser();
-                                LogToFile("CloseByUser方法已调用");
-                            }
-                            else
-                            {
-                                LogToFile("未找到主窗口，直接调用Application.Current.Shutdown()");
-                                Application.Current.Shutdown();
-                            }
+                        mainWindow.CloseByUser();
+                        LogToFile("CloseByUser方法已调用");
+                    }
+                    else
+                    {
+                        LogToFile("未找到主窗口，直接调用Application.Current.Shutdown()");
+                        Application.Current.Shutdown();
+                    }
                         }
                         catch (Exception closeEx)
                         {
@@ -590,11 +592,11 @@ namespace TCClient.ViewModels
                 LogMenuError(nameof(Exit), ex);
                 try
                 {
-                    _messageService.ShowMessage(
-                        $"退出应用程序失败：{ex.Message}",
-                        "错误",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Error);
+                _messageService.ShowMessage(
+                    $"退出应用程序失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
                 }
                 catch (Exception msgEx)
                 {
@@ -1075,8 +1077,32 @@ namespace TCClient.ViewModels
             }
         }
 
+        private void ShowMarketOverview()
+        {
+            try
+            {
+                var window = new Views.MarketOverviewWindow();
+                window.Owner = Application.Current.MainWindow;
+                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                window.Show();
+                LogToFile("成功打开市场总览窗口");
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowMarketOverview), ex);
+                _messageService.ShowMessage(
+                    $"打开市场总览失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
         private static void LogToFile(string message)
         {
+            // 日志输出已禁用
+            // 如需启用，请取消注释以下代码：
+            /*
             try
             {
                 var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
@@ -1087,10 +1113,14 @@ namespace TCClient.ViewModels
             {
                 // 忽略日志写入失败
             }
+            */
         }
 
         private static void LogMenuError(string methodName, Exception ex)
         {
+            // 日志输出已禁用
+            // 如需启用，请取消注释以下代码：
+            /*
             try
             {
                 var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
@@ -1105,6 +1135,7 @@ namespace TCClient.ViewModels
             {
                 // 忽略日志写入失败
             }
+            */
         }
     }
 } 

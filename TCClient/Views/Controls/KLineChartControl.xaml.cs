@@ -73,7 +73,7 @@ namespace TCClient.Views.Controls
         {
             try
             {
-                _exchangeService = exchangeService;
+            _exchangeService = exchangeService;
                 
                 // 记录初始化状态
                 LogToFile($"K线图控件初始化: ExchangeService = {(exchangeService != null ? "已设置" : "null")}");
@@ -612,6 +612,9 @@ namespace TCClient.Views.Controls
 
         private static void LogToFile(string message)
         {
+            // 日志输出已禁用
+            // 如需启用，请取消注释以下代码：
+            /*
             try
             {
                 var logPath = IOPath.Combine(
@@ -625,6 +628,7 @@ namespace TCClient.Views.Controls
             {
                 // 忽略日志写入失败
             }
+            */
         }
 
         private List<KLineData> GenerateMockKLineData()
@@ -713,8 +717,8 @@ namespace TCClient.Views.Controls
                 }
                 
                 if (!_showVolume || _kLineData == null || !_kLineData.Any() || _volumeCanvasHeight <= 0)
-                {
-                    VolumeCanvas.Children.Clear();
+                    {
+                        VolumeCanvas.Children.Clear();
                     return;
                 }
 
@@ -731,8 +735,8 @@ namespace TCClient.Views.Controls
                 }
                 else
                 {
-                    _maxVolume = (double)_kLineData.Max(k => k.Volume);
-                    var minVolume = (double)_kLineData.Min(k => k.Volume);
+                _maxVolume = (double)_kLineData.Max(k => k.Volume);
+                var minVolume = (double)_kLineData.Min(k => k.Volume);
                     LogToFile($"使用成交量数据，最大值: {_maxVolume:F2}, 最小值: {minVolume:F2}");
                 }
                 var volumeRange = _maxVolume;

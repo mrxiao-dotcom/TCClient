@@ -25,6 +25,9 @@ namespace TCClient.Views
 
         private static async Task LogToFileAsync(string message)
         {
+            // 日志输出已禁用
+            // 如需启用，请取消注释以下代码：
+            /*
             try
             {
                 await _logSemaphore.WaitAsync();
@@ -43,6 +46,7 @@ namespace TCClient.Views
             {
                 // 忽略日志写入失败
             }
+            */
         }
 
         public LoginWindow(IServiceProvider services)

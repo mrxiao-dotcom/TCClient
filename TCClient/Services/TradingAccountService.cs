@@ -16,6 +16,9 @@ namespace TCClient.Services
 
         private static void LogToFile(string message)
         {
+            // 日志输出已禁用
+            // 如需启用，请取消注释以下代码：
+            /*
             try
             {
                 var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
@@ -26,6 +29,7 @@ namespace TCClient.Services
             {
                 // 忽略日志写入失败
             }
+            */
         }
 
         public TradingAccountService(string connectionString)

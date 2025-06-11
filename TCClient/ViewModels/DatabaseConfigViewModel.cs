@@ -191,7 +191,9 @@ namespace TCClient.ViewModels
                 IsTesting = true;
                 StatusMessage = "正在测试连接...";
 
-                // 记录当前连接信息
+                // 日志输出已禁用
+                // 如需启用，请取消注释以下代码：
+                /*
                 var logPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
                     "TCClient_DatabaseTest.log");
@@ -203,6 +205,7 @@ namespace TCClient.ViewModels
                                 $"用户名: {CurrentConnection.Username}\n";
                 
                 File.AppendAllText(logPath, logMessage);
+                */
 
                 // 先尝试 ping 服务器
                 try
@@ -213,14 +216,14 @@ namespace TCClient.ViewModels
                         var reply = await ping.SendPingAsync(CurrentConnection.Server);
                         var pingResult = $"Ping 结果: {reply.Status}, 延迟: {reply.RoundtripTime}ms";
                         StatusMessage = pingResult;
-                        File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {pingResult}\n");
+                        // File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {pingResult}\n");
                     }
                 }
                 catch (Exception pingEx)
                 {
                     var pingError = $"Ping 失败: {pingEx.Message}";
                     StatusMessage = pingError;
-                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {pingError}\n");
+                    // File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {pingError}\n");
                 }
 
                 // 测试数据库连接
@@ -230,12 +233,12 @@ namespace TCClient.ViewModels
                 if (isConnected)
                 {
                     StatusMessage = "连接测试成功";
-                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] 数据库连接测试成功\n");
+                    // File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] 数据库连接测试成功\n");
                 }
                 else
                 {
                     StatusMessage = "连接测试失败";
-                    File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] 数据库连接测试失败\n");
+                    // File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] 数据库连接测试失败\n");
                 }
             }
             catch (Exception ex)
@@ -243,13 +246,16 @@ namespace TCClient.ViewModels
                 var errorMessage = $"连接测试失败：{ex.Message}";
                 StatusMessage = errorMessage;
                 
-                // 记录详细错误信息
+                // 日志输出已禁用
+                // 如需启用，请取消注释以下代码：
+                /*
                 var logPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
                     "TCClient_DatabaseTest.log");
                 
                 File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {errorMessage}\n");
                 File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] 错误详情: {ex}\n");
+                */
             }
             finally
             {

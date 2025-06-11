@@ -109,5 +109,20 @@ namespace TCClient.Services
         
         // 账户持仓相关
         Task<List<AccountPosition>> GetAccountPositionsAsync(long accountId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 直接从数据库计算价格统计数据（避免获取完整K线数据）
+        /// </summary>
+        Task<Dictionary<string, (decimal HighPrice, decimal LowPrice, decimal OpenPrice)>> GetPriceStatsDirectAsync(int days, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 批量获取多个周期的价格统计数据
+        /// </summary>
+        Task<Dictionary<int, Dictionary<string, (decimal HighPrice, decimal LowPrice, decimal OpenPrice)>>> GetBatchPriceStatsAsync(int[] daysPeriods, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 直接从数据库计算单日统计数据
+        /// </summary>
+        Task<DailyMarketStats> GetDailyStatsDirectAsync(DateTime date, CancellationToken cancellationToken = default);
     }
 } 

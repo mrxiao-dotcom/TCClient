@@ -49,8 +49,8 @@ namespace TCClient.Services
                 string username = connection.Username;
                 string password = connection.Password;
                 
-                // 构建连接字符串
-                _connectionString = $"Server={server};Port={port};Database={database};User ID={username};Password={password};";
+                // 构建连接字符串，添加连接超时和其他参数
+                _connectionString = $"Server={server};Port={port};Database={database};User ID={username};Password={password};Connection Timeout=30;Command Timeout=60;SSL Mode=None;";
                 LogManager.Log("Database", $"数据库连接字符串已加载: Server={server};Port={port};Database={database}");
                 }
                 catch (Exception ex)
@@ -384,26 +384,26 @@ namespace TCClient.Services
                     $"验证用户 {username}",
                     async (connection, ct) =>
                     {
-                        using var cmd = new MySqlCommand(
-                            "SELECT password_hash FROM users WHERE username = @username",
-                            connection);
-                        cmd.Parameters.AddWithValue("@username", username);
-                        LogManager.Log("Database", $"执行查询: SELECT password_hash FROM users WHERE username = '{username}'");
+                using var cmd = new MySqlCommand(
+                    "SELECT password_hash FROM users WHERE username = @username",
+                    connection);
+                cmd.Parameters.AddWithValue("@username", username);
+                LogManager.Log("Database", $"执行查询: SELECT password_hash FROM users WHERE username = '{username}'");
 
                         var result = await cmd.ExecuteScalarAsync(ct);
-                        if (result == null)
-                        {
-                            LogManager.Log("Database", $"用户 {username} 不存在");
-                            return false;
-                        }
+                if (result == null)
+                {
+                    LogManager.Log("Database", $"用户 {username} 不存在");
+                    return false;
+                }
 
-                        var storedHash = result.ToString();
-                        var inputHash = HashPassword(password);
-                        LogManager.Log("Database", $"密码验证: 存储的哈希值 = {storedHash}, 输入的哈希值 = {inputHash}");
-                        
-                        var isValid = storedHash == inputHash;
-                        LogManager.Log("Database", $"密码验证结果: {(isValid ? "成功" : "失败")}");
-                        return isValid;
+                var storedHash = result.ToString();
+                var inputHash = HashPassword(password);
+                LogManager.Log("Database", $"密码验证: 存储的哈希值 = {storedHash}, 输入的哈希值 = {inputHash}");
+                
+                var isValid = storedHash == inputHash;
+                LogManager.Log("Database", $"密码验证结果: {(isValid ? "成功" : "失败")}");
+                return isValid;
                     },
                     cancellationToken,
                     15 // 用户验证操作设置较短的超时时间
@@ -4073,6 +4073,193 @@ namespace TCClient.Services
             {
                 LogManager.LogException("Database", ex, "获取所有推仓信息失败");
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// 直接从数据库计算价格统计数据（避免获取完整K线数据）
+        /// </summary>
+        public async Task<Dictionary<string, (decimal HighPrice, decimal LowPrice, decimal OpenPrice)>> GetPriceStatsDirectAsync(int days, CancellationToken cancellationToken = default)
+        {
+            var result = new Dictionary<string, (decimal, decimal, decimal)>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        // 直接在数据库中计算统计数据，避免传输大量K线数据
+                        command.CommandText = @"
+                            SELECT 
+                                symbol,
+                                MAX(high_price) as max_high,
+                                MIN(low_price) as min_low,
+                                FIRST_VALUE(open_price) OVER (PARTITION BY symbol ORDER BY open_time ASC) as first_open
+                            FROM kline_data 
+                            WHERE DATE(open_time) >= DATE_SUB(CURDATE(), INTERVAL @days DAY)
+                            AND DATE(open_time) < CURDATE()
+                            AND TIME_TO_SEC(TIMEDIFF(close_time, open_time)) >= 86000
+                            GROUP BY symbol";
+                        
+                        command.Parameters.AddWithValue("@days", days);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            while (await reader.ReadAsync(cancellationToken))
+                            {
+                                var symbol = reader.GetString("symbol");
+                                var highPrice = reader.GetDecimal("max_high");
+                                var lowPrice = reader.GetDecimal("min_low");
+                                var openPrice = reader.GetDecimal("first_open");
+                                
+                                result[symbol] = (highPrice, lowPrice, openPrice);
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"直接计算了{result.Count}个合约过去{days}天的价格统计数据");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"直接计算价格统计数据失败");
+                throw;
+            }
+            
+            return result;
+        }
+
+        /// <summary>
+        /// 批量获取多个周期的价格统计数据
+        /// </summary>
+        public async Task<Dictionary<int, Dictionary<string, (decimal HighPrice, decimal LowPrice, decimal OpenPrice)>>> GetBatchPriceStatsAsync(int[] daysPeriods, CancellationToken cancellationToken = default)
+        {
+            var result = new Dictionary<int, Dictionary<string, (decimal, decimal, decimal)>>();
+            
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    
+                    foreach (var days in daysPeriods)
+                    {
+                        var periodStats = new Dictionary<string, (decimal, decimal, decimal)>();
+                        
+                        using (var command = connection.CreateCommand())
+                        {
+                            command.CommandText = @"
+                                SELECT 
+                                    symbol,
+                                    MAX(high_price) as max_high,
+                                    MIN(low_price) as min_low,
+                                    FIRST_VALUE(open_price) OVER (PARTITION BY symbol ORDER BY open_time ASC) as first_open
+                                FROM kline_data 
+                                WHERE DATE(open_time) >= DATE_SUB(CURDATE(), INTERVAL @days DAY)
+                                AND DATE(open_time) < CURDATE()
+                                AND TIME_TO_SEC(TIMEDIFF(close_time, open_time)) >= 86000
+                                GROUP BY symbol";
+                            
+                            command.Parameters.Clear();
+                            command.Parameters.AddWithValue("@days", days);
+                            
+                            using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                            {
+                                while (await reader.ReadAsync(cancellationToken))
+                                {
+                                    var symbol = reader.GetString("symbol");
+                                    var highPrice = reader.GetDecimal("max_high");
+                                    var lowPrice = reader.GetDecimal("min_low");
+                                    var openPrice = reader.GetDecimal("first_open");
+                                    
+                                    periodStats[symbol] = (highPrice, lowPrice, openPrice);
+                                }
+                            }
+                        }
+                        
+                        result[days] = periodStats;
+                    }
+                }
+                
+                LogManager.Log("Database", $"批量计算了{daysPeriods.Length}个周期的价格统计数据");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, "批量计算价格统计数据失败");
+                throw;
+            }
+            
+            return result;
+        }
+
+        /// <summary>
+        /// 直接从数据库计算单日统计数据
+        /// </summary>
+        public async Task<DailyMarketStats> GetDailyStatsDirectAsync(DateTime date, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await EnsureConnectionStringLoadedAsync();
+                using (var connection = new MySqlConnection(_connectionString))
+                {
+                    await connection.OpenAsync(cancellationToken);
+                    using (var command = connection.CreateCommand())
+                    {
+                        // 直接在数据库中计算单日统计
+                        command.CommandText = @"
+                            SELECT 
+                                SUM(CASE 
+                                    WHEN ((close_price - open_price) / open_price * 100) > 0.1 THEN 1 
+                                    ELSE 0 
+                                END) as rising_count,
+                                SUM(CASE 
+                                    WHEN ((close_price - open_price) / open_price * 100) < -0.1 THEN 1 
+                                    ELSE 0 
+                                END) as falling_count,
+                                SUM(CASE 
+                                    WHEN ((close_price - open_price) / open_price * 100) >= -0.1 
+                                        AND ((close_price - open_price) / open_price * 100) <= 0.1 THEN 1 
+                                    ELSE 0 
+                                END) as flat_count,
+                                SUM(quote_volume) as daily_volume
+                            FROM kline_data 
+                            WHERE DATE(open_time) = DATE(@date)
+                            AND TIME_TO_SEC(TIMEDIFF(close_time, open_time)) >= 86000
+                            AND open_price > 0";
+                        
+                        command.Parameters.AddWithValue("@date", date.Date);
+                        
+                        using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+                        {
+                            if (await reader.ReadAsync(cancellationToken))
+                            {
+                                var stats = new DailyMarketStats
+                                {
+                                    Date = date.Date,
+                                    RisingCount = reader.IsDBNull("rising_count") ? 0 : reader.GetInt32("rising_count"),
+                                    FallingCount = reader.IsDBNull("falling_count") ? 0 : reader.GetInt32("falling_count"),
+                                    FlatCount = reader.IsDBNull("flat_count") ? 0 : reader.GetInt32("flat_count"),
+                                    DailyVolume = reader.IsDBNull("daily_volume") ? 0m : reader.GetDecimal("daily_volume")
+                                };
+                                
+                                LogManager.Log("Database", $"直接计算{date:yyyy-MM-dd}统计数据: 上涨{stats.RisingCount}, 下跌{stats.FallingCount}, 平盘{stats.FlatCount}");
+                                return stats;
+                            }
+                        }
+                    }
+                }
+                
+                LogManager.Log("Database", $"计算{date:yyyy-MM-dd}统计数据失败：没有找到数据");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("Database", ex, $"计算{date:yyyy-MM-dd}统计数据失败");
+                return null;
             }
         }
     }

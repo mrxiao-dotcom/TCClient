@@ -602,32 +602,32 @@ namespace TCClient.Views
         private async Task<HashSet<string>> GetTradableSymbolsAsync(CancellationToken cancellationToken)
         {
             try
+        {
+            // 检查缓存是否有效
+            var now = DateTime.Now;
+            if (_tradableSymbolsCache != null && 
+                (now - _tradableSymbolsCacheTime).TotalHours < TRADABLE_SYMBOLS_CACHE_HOURS)
             {
-                // 检查缓存是否有效
-                var now = DateTime.Now;
-                if (_tradableSymbolsCache != null && 
-                    (now - _tradableSymbolsCacheTime).TotalHours < TRADABLE_SYMBOLS_CACHE_HOURS)
-                {
-                    Utils.AppSession.Log($"使用缓存的可交易合约数据，共 {_tradableSymbolsCache.Count} 个合约");
-                    return _tradableSymbolsCache;
-                }
-
-                // 获取可交易合约
-                Utils.AppSession.Log("正在获取可交易合约列表...");
-                var tradableSymbols = await _exchangeService.GetTradableSymbolsAsync();
-                
-                if (tradableSymbols == null || !tradableSymbols.Any())
-                {
-                    Utils.AppSession.Log("警告：无法获取可交易合约列表，使用空列表");
-                    return new HashSet<string>();
-                }
-
-                // 更新缓存
-                _tradableSymbolsCache = new HashSet<string>(tradableSymbols, StringComparer.OrdinalIgnoreCase);
-                _tradableSymbolsCacheTime = now;
-                
-                Utils.AppSession.Log($"成功获取并缓存 {_tradableSymbolsCache.Count} 个可交易合约");
+                Utils.AppSession.Log($"使用缓存的可交易合约数据，共 {_tradableSymbolsCache.Count} 个合约");
                 return _tradableSymbolsCache;
+            }
+
+            // 获取可交易合约
+            Utils.AppSession.Log("正在获取可交易合约列表...");
+            var tradableSymbols = await _exchangeService.GetTradableSymbolsAsync();
+            
+            if (tradableSymbols == null || !tradableSymbols.Any())
+            {
+                Utils.AppSession.Log("警告：无法获取可交易合约列表，使用空列表");
+                return new HashSet<string>();
+            }
+
+            // 更新缓存
+            _tradableSymbolsCache = new HashSet<string>(tradableSymbols, StringComparer.OrdinalIgnoreCase);
+            _tradableSymbolsCacheTime = now;
+            
+            Utils.AppSession.Log($"成功获取并缓存 {_tradableSymbolsCache.Count} 个可交易合约");
+            return _tradableSymbolsCache;
             }
             catch (TaskCanceledException tcEx)
             {
@@ -953,12 +953,12 @@ namespace TCClient.Views
                         Utils.AppSession.Log($"开始更新放量合约UI，共有 {sortedBreakouts.Count} 个合约");
                         
                         // 清空现有数据
-                        _volumeBreakouts.Clear();
+                    _volumeBreakouts.Clear();
                         
                         // 添加新数据
-                        foreach (var item in sortedBreakouts)
-                        {
-                            _volumeBreakouts.Add(item);
+                    foreach (var item in sortedBreakouts)
+                    {
+                        _volumeBreakouts.Add(item);
                             Utils.AppSession.Log($"添加放量合约到UI: {item.Symbol}, 排名: {item.Rank}, 放量倍数: {item.VolumeMultiplier:F1}");
                         }
                         
@@ -1126,9 +1126,9 @@ namespace TCClient.Views
                 Utils.AppSession.Log("🔍 步骤2: 获取可交易合约列表...");
                 AddAnalysisLog("📈 步骤2: 获取可交易合约列表...");
                 
-                var tradableSymbols = await GetTradableSymbolsAsync(cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
-                
+            var tradableSymbols = await GetTradableSymbolsAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
                 if (tradableSymbols == null || !tradableSymbols.Any())
                 {
                     var errorMsg = "❌ 无法获取可交易合约列表！请检查网络连接";
@@ -1182,8 +1182,8 @@ namespace TCClient.Views
                 Utils.AppSession.Log("🔍 步骤4: 开始加载历史数据...");
                 AddAnalysisLog("📚 步骤4: 加载历史数据...");
 
-                await LoadHistoricalData(tradableSymbols, cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
+            await LoadHistoricalData(tradableSymbols, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
                 Utils.AppSession.Log($"✅ 历史数据加载完成，缓存中有 {_historicalDataCache.Count} 个合约");
                 AddAnalysisLog($"✅ 历史数据加载完成，缓存中有 {_historicalDataCache.Count} 个合约");
@@ -1205,8 +1205,8 @@ namespace TCClient.Views
                 Utils.AppSession.Log("🔍 步骤5: 获取当前价格数据...");
                 AddAnalysisLog("💰 步骤5: 获取当前价格数据...");
 
-                var currentPrices = await GetCurrentPrices(tradableSymbols, cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
+            var currentPrices = await GetCurrentPrices(tradableSymbols, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
                 Utils.AppSession.Log($"✅ 当前价格获取完成，共 {currentPrices.Count} 个合约");
                 AddAnalysisLog($"✅ 当前价格获取完成，共 {currentPrices.Count} 个合约");
@@ -1254,11 +1254,11 @@ namespace TCClient.Views
                 Utils.AppSession.Log("🔍 步骤7: 开始执行突破分析...");
                 AddAnalysisLog("🚀 步骤7: 执行突破分析...");
 
-                var breakouts = AnalyzeAllBreakouts(currentPrices);
+            var breakouts = AnalyzeAllBreakouts(currentPrices);
 
-                // 记录突破分析结果
-                Utils.AppSession.Log($"突破分析完成 - 5天新高: {breakouts.Break5DayHigh.Count}, 10天新高: {breakouts.Break10DayHigh.Count}, 20天新高: {breakouts.Break20DayHigh.Count}");
-                Utils.AppSession.Log($"突破分析完成 - 5天新低: {breakouts.Break5DayLow.Count}, 10天新低: {breakouts.Break10DayLow.Count}, 20天新低: {breakouts.Break20DayLow.Count}");
+            // 记录突破分析结果
+            Utils.AppSession.Log($"突破分析完成 - 5天新高: {breakouts.Break5DayHigh.Count}, 10天新高: {breakouts.Break10DayHigh.Count}, 20天新高: {breakouts.Break20DayHigh.Count}");
+            Utils.AppSession.Log($"突破分析完成 - 5天新低: {breakouts.Break5DayLow.Count}, 10天新低: {breakouts.Break10DayLow.Count}, 20天新低: {breakouts.Break20DayLow.Count}");
                 
                 AddAnalysisLog($"✅ 突破分析完成!");
                 AddAnalysisLog($"  📈 新高突破: 5天 {breakouts.Break5DayHigh.Count} 个, 10天 {breakouts.Break10DayHigh.Count} 个, 20天 {breakouts.Break20DayHigh.Count} 个");
@@ -1271,21 +1271,21 @@ namespace TCClient.Views
                     AddAnalysisLog("ℹ️ 当前没有发现突破情况，这可能是正常的市场状态");
                 }
 
-                // 更新UI
-                Dispatcher.Invoke(() =>
-                {
-                    foreach (var item in breakouts.Break5DayHigh)
-                        _break5DayHigh.Add(item);
-                    foreach (var item in breakouts.Break10DayHigh)
-                        _break10DayHigh.Add(item);
-                    foreach (var item in breakouts.Break20DayHigh)
-                        _break20DayHigh.Add(item);
-                    foreach (var item in breakouts.Break5DayLow)
-                        _break5DayLow.Add(item);
-                    foreach (var item in breakouts.Break10DayLow)
-                        _break10DayLow.Add(item);
-                    foreach (var item in breakouts.Break20DayLow)
-                        _break20DayLow.Add(item);
+            // 更新UI
+            Dispatcher.Invoke(() =>
+            {
+                foreach (var item in breakouts.Break5DayHigh)
+                    _break5DayHigh.Add(item);
+                foreach (var item in breakouts.Break10DayHigh)
+                    _break10DayHigh.Add(item);
+                foreach (var item in breakouts.Break20DayHigh)
+                    _break20DayHigh.Add(item);
+                foreach (var item in breakouts.Break5DayLow)
+                    _break5DayLow.Add(item);
+                foreach (var item in breakouts.Break10DayLow)
+                    _break10DayLow.Add(item);
+                foreach (var item in breakouts.Break20DayLow)
+                    _break20DayLow.Add(item);
                         
                     ProgressText.Text = "突破分析完成";
                     AnalysisProgressBar.Value = 100;
@@ -1457,7 +1457,7 @@ namespace TCClient.Views
                     {
                         // 验证缓存数据是否还有效（当天内）
                         if (data.IsValid)
-                        {
+                    {
                             _historicalDataCache[symbol] = data;
                             validCacheCount++;
                         }
@@ -1474,13 +1474,13 @@ namespace TCClient.Views
                 if (validCacheCount > 0)
                 {
                     Utils.AppSession.Log($"从缓存文件加载历史数据完成，有效缓存: {validCacheCount} 个，过期缓存: {invalidCacheCount} 个");
-                    
-                    Dispatcher.Invoke(() =>
-                    {
+                
+                Dispatcher.Invoke(() =>
+                {
                         ProgressText.Text = $"从缓存加载完成 - 有效: {validCacheCount} 个";
-                        AnalysisProgressBar.Value = 50;
-                    });
-                    return;
+                    AnalysisProgressBar.Value = 50;
+                });
+                return;
                 }
                 else
                 {
@@ -1589,7 +1589,7 @@ namespace TCClient.Views
                     var startDate = endDate.AddDays(-25);
 
                     Utils.AppSession.Log($"合约 {symbol}: 查询K线数据，时间范围 {startDate:yyyy-MM-dd} 到 {endDate:yyyy-MM-dd}");
-                    
+
                     var klineData = await _databaseService.GetKlineDataAsync(symbol, startDate, endDate);
                     if (klineData != null && klineData.Any())
                     {
@@ -2531,7 +2531,7 @@ namespace TCClient.Views
                     }
 
                     Utils.AppSession.Log($"✅ 交易所服务正常，开始创建新的K线窗口");
-                    var klineWindow = new KLineFloatingWindow(symbol, _exchangeService);
+                var klineWindow = new KLineFloatingWindow(symbol, _exchangeService);
                     
                     // 添加窗口关闭事件处理，确保从字典中移除
                     klineWindow.Closed += (sender, e) =>
@@ -2547,10 +2547,10 @@ namespace TCClient.Views
                     _openKLineWindows[symbol] = klineWindow;
                     
                     Utils.AppSession.Log($"✅ K线浮窗创建成功，准备显示");
-                    klineWindow.Show();
+                klineWindow.Show();
                     
                     Utils.AppSession.Log($"✅ 成功打开合约 {symbol} 的K线浮窗");
-                    AddAnalysisLog($"📈 打开K线图: {symbol}");
+                AddAnalysisLog($"📈 打开K线图: {symbol}");
                 }
             }
             catch (NullReferenceException nrEx)

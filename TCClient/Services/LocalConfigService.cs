@@ -19,6 +19,16 @@ namespace TCClient.Services
 
         public static DatabaseConnection Default => new DatabaseConnection
         {
+            Name = "本地MySQL服务器",
+            Server = "localhost",
+            Port = 3306,
+            Database = "ordermanager",
+            Username = "root",
+            Password = ""
+        };
+
+        public static DatabaseConnection RemoteDefault => new DatabaseConnection
+        {
             Name = "远程MySQL服务器",
             Server = "154.23.181.75",
             Port = 3306,
@@ -59,6 +69,7 @@ namespace TCClient.Services
             if (!File.Exists(_configPath))
             {
                 _connections.Add(DatabaseConnection.Default);
+                _connections.Add(DatabaseConnection.RemoteDefault);
                 SaveDatabaseConnections(_connections).Wait();
             }
             else

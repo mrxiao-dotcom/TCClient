@@ -65,8 +65,8 @@ namespace TCClient.Services
         {
             lock (_lockObject)
             {
-                try
-                {
+            try
+            {
                     if (_isDisposed)
                     {
                         LogManager.Log("StopLossMonitorService", "服务已释放，无需停止");
@@ -75,24 +75,24 @@ namespace TCClient.Services
 
                     _isRunning = false;
                     
-                    if (_cts != null && !_cts.Token.IsCancellationRequested)
-                    {
-                        _cts.Cancel();
-                    }
+                if (_cts != null && !_cts.Token.IsCancellationRequested)
+                {
+                    _cts.Cancel();
+                }
                     
-                    LogManager.Log("StopLossMonitorService", "止损监控服务已停止");
-                    _logger?.LogInformation("止损监控服务已停止");
-                }
-                catch (ObjectDisposedException)
-                {
-                    // CancellationTokenSource已被释放，忽略
-                    LogManager.Log("StopLossMonitorService", "止损监控服务停止时CancellationTokenSource已释放");
-                    _logger?.LogInformation("止损监控服务停止时CancellationTokenSource已释放");
-                }
-                catch (Exception ex)
-                {
-                    LogManager.LogException("StopLossMonitorService", ex, "停止止损监控服务时发生异常");
-                    _logger?.LogError(ex, "停止止损监控服务时发生异常");
+                LogManager.Log("StopLossMonitorService", "止损监控服务已停止");
+                _logger?.LogInformation("止损监控服务已停止");
+            }
+            catch (ObjectDisposedException)
+            {
+                // CancellationTokenSource已被释放，忽略
+                LogManager.Log("StopLossMonitorService", "止损监控服务停止时CancellationTokenSource已释放");
+                _logger?.LogInformation("止损监控服务停止时CancellationTokenSource已释放");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("StopLossMonitorService", ex, "停止止损监控服务时发生异常");
+                _logger?.LogError(ex, "停止止损监控服务时发生异常");
                 }
             }
         }
@@ -131,7 +131,7 @@ namespace TCClient.Services
                     }
                     
                     if (shouldCancel)
-                    {
+                {
                         LogManager.Log("StopLossMonitorService", "检测到取消请求，退出监控循环");
                         break;
                     }
@@ -727,8 +727,8 @@ namespace TCClient.Services
                     return;
                 }
                 
-                try
-                {
+            try
+            {
                     LogManager.Log("StopLossMonitorService", "=== 开始释放止损监控服务 ===");
                     _isDisposed = true;
                     _isRunning = false;
@@ -738,12 +738,12 @@ namespace TCClient.Services
                     {
                         _cts.Cancel();
                     }
-                }
-                catch (Exception ex)
-                {
-                    LogManager.LogException("StopLossMonitorService", ex, "Dispose时停止服务失败");
-                    _logger?.LogError(ex, "Dispose时停止服务失败");
-                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("StopLossMonitorService", ex, "Dispose时停止服务失败");
+                _logger?.LogError(ex, "Dispose时停止服务失败");
+            }
                 
                 // 在锁外释放资源，避免死锁
             }
@@ -755,18 +755,18 @@ namespace TCClient.Services
                 Task.Delay(100).Wait();
                 
                 lock (_lockObject)
+            {
+                try
                 {
-                    try
-                    {
-                        _cts?.Dispose();
+                    _cts?.Dispose();
                         _cts = null;
                         LogManager.Log("StopLossMonitorService", "CancellationTokenSource已释放");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogManager.LogException("StopLossMonitorService", ex, "Dispose时释放CancellationTokenSource失败");
-                        _logger?.LogError(ex, "Dispose时释放CancellationTokenSource失败");
-                    }
+                }
+                catch (Exception ex)
+                {
+                    LogManager.LogException("StopLossMonitorService", ex, "Dispose时释放CancellationTokenSource失败");
+                    _logger?.LogError(ex, "Dispose时释放CancellationTokenSource失败");
+                }
                 }
                 
                 LogManager.Log("StopLossMonitorService", "=== 止损监控服务释放完成 ===");

@@ -53,7 +53,7 @@ public partial class App : Application
                 }
                 else
                 {
-                    MessageBox.Show($"未处理的异常: {ex?.GetType().FullName}\n{ex?.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"未处理的异常: {ex?.GetType().FullName}\n{ex?.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             };
             
@@ -78,7 +78,7 @@ public partial class App : Application
                 else
                 {
                     LogManager.Log("App", $"UI线程未处理的一般异常: {ex.GetType().FullName}");
-                    MessageBox.Show($"UI线程未处理的异常: {ex.GetType().FullName}\n{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"UI线程未处理的异常: {ex.GetType().FullName}\n{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 e.Handled = true;
             };
@@ -198,6 +198,9 @@ public partial class App : Application
         
         // 注册自选合约服务
         services.AddSingleton<FavoriteContractsService>();
+        
+        // 注册市场总览服务
+        services.AddSingleton<MarketOverviewService>();
 
         // 注册 ViewModel
         services.AddSingleton<MainViewModel>();
@@ -235,12 +238,12 @@ public partial class App : Application
             LogManager.Log("App", "应用程序启动开始");
             base.OnStartup(e);
 
-            // 启动后台服务管理器
+            // 启动后台服务管理器 - 只启动机会选择相关服务
             try
             {
                 var backgroundServiceManager = _serviceProvider.GetRequiredService<BackgroundServiceManager>();
-                backgroundServiceManager.StartAllEnabledServices();
-                LogManager.Log("App", "后台服务管理器已启动");
+                backgroundServiceManager.StartFindOpportunityOnlyMode();
+                LogManager.Log("App", "后台服务管理器已启动（机会选择专用模式）");
             }
             catch (Exception serviceEx)
             {
@@ -459,7 +462,7 @@ public partial class App : Application
                 LogManager.Log("App", "后台服务清理完成");
             }
             catch (Exception serviceEx)
-            {
+                {
                 LogManager.LogException("App", serviceEx, "停止后台服务管理器失败");
             }
             
@@ -489,10 +492,10 @@ public partial class App : Application
             try
             {
                 LogManager.Log("App", "开始关闭数据库连接...");
-                var databaseService = _serviceProvider.GetService<IDatabaseService>();
-                if (databaseService != null)
-                {
-                    // 使用同步调用避免异步过程被截断
+            var databaseService = _serviceProvider.GetService<IDatabaseService>();
+            if (databaseService != null)
+            {
+                // 使用同步调用避免异步过程被截断
                     var disconnectTask = databaseService.DisconnectAsync();
                     if (!disconnectTask.Wait(2000)) // 最多等待2秒
                     {
@@ -503,9 +506,9 @@ public partial class App : Application
                         LogManager.Log("App", "数据库连接已正常关闭");
                     }
                 }
-            }
-            catch (Exception dbEx)
-            {
+                }
+                catch (Exception dbEx)
+                {
                 LogManager.LogException("App", dbEx, "关闭数据库连接失败");
             }
             
@@ -536,8 +539,8 @@ public partial class App : Application
             try
             {
                 LogManager.Log("App", "执行垃圾回收...");
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
                 GC.Collect();
                 LogManager.Log("App", "垃圾回收完成");
             }
@@ -564,7 +567,7 @@ public partial class App : Application
             // 刷新日志
             try
             {
-                LogManager.FlushLogs();
+            LogManager.FlushLogs();
             }
             catch (Exception logEx)
             {

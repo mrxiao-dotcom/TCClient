@@ -25,7 +25,7 @@ namespace TCClient.Views
 
         private const int MAX_RECENT_SYMBOLS = 20;
         private static int _globalMAPeriod = 20; // 全局均线参数
-        
+
         /// <summary>
         /// 格式化symbol确保有正确的USDT后缀
         /// </summary>
@@ -72,8 +72,8 @@ namespace TCClient.Views
                 }
                 
                 Utils.AppSession.Log("📋 初始化窗口组件...");
-                InitializeComponent();
-                _exchangeService = exchangeService;
+            InitializeComponent();
+            _exchangeService = exchangeService;
                 
                 Utils.AppSession.Log("📊 绑定数据源...");
                 // 检查关键控件是否正确加载
@@ -82,28 +82,28 @@ namespace TCClient.Views
                     Utils.AppSession.Log("⚠️ 警告: RecentSymbolsDataGrid为null");
                     throw new InvalidOperationException("RecentSymbolsDataGrid控件未正确加载，XAML可能存在问题");
                 }
-                
-                // 绑定数据源
-                RecentSymbolsDataGrid.ItemsSource = _recentSymbols;
-                
-                // 添加窗口关闭事件处理
-                this.Closing += KLineFloatingWindow_Closing;
-                
+            
+            // 绑定数据源
+            RecentSymbolsDataGrid.ItemsSource = _recentSymbols;
+            
+            // 添加窗口关闭事件处理
+            this.Closing += KLineFloatingWindow_Closing;
+            
                 Utils.AppSession.Log("🎨 初始化K线图控件...");
-                // 初始化K线图控件
-                InitializeKLineCharts();
-                
+            // 初始化K线图控件
+            InitializeKLineCharts();
+            
                 Utils.AppSession.Log("⚙️ 加载设置...");
-                // 加载全局设置
-                _ = LoadGlobalMASettingsAsync();
-                
+            // 加载全局设置
+            _ = LoadGlobalMASettingsAsync();
+            
                 Utils.AppSession.Log("📝 加载最近浏览记录...");
-                // 加载最近浏览列表
-                LoadRecentSymbols();
-                
-                // 如果提供了合约，则加载该合约
-                if (!string.IsNullOrEmpty(symbol))
-                {
+            // 加载最近浏览列表
+            LoadRecentSymbols();
+            
+            // 如果提供了合约，则加载该合约
+            if (!string.IsNullOrEmpty(symbol))
+            {
                     var baseSymbol = GetBaseSymbol(symbol);
                     Utils.AppSession.Log($"📈 开始加载指定合约: 输入={symbol}, 基础={baseSymbol}");
                     _ = LoadSymbolAsync(baseSymbol);
@@ -301,14 +301,14 @@ namespace TCClient.Views
                 await Task.Run(() =>
                 {
                     // 在UI线程中刷新界面
-                    Dispatcher.Invoke(() =>
-                    {
+                Dispatcher.Invoke(() =>
+                {
                         Utils.AppSession.Log($"🖥️ UI线程刷新浏览记录，当前队列包含 {_recentSymbols.Count} 个项目");
-                        
-                        // 强制刷新DataGrid
-                        if (RecentSymbolsDataGrid != null)
-                        {
-                            RecentSymbolsDataGrid.Items.Refresh();
+                    
+                    // 强制刷新DataGrid
+                    if (RecentSymbolsDataGrid != null)
+                    {
+                        RecentSymbolsDataGrid.Items.Refresh();
                             Utils.AppSession.Log($"📊 浏览记录DataGrid已刷新完成");
                             
                             // 显示队列统计信息
@@ -322,7 +322,7 @@ namespace TCClient.Views
                         else
                         {
                             Utils.AppSession.Log("⚠️ RecentSymbolsDataGrid为null，无法刷新UI");
-                        }
+                    }
                     });
                 });
             }
@@ -345,11 +345,11 @@ namespace TCClient.Views
                     Dispatcher.Invoke(() =>
                     {
                         // 清空并重新填充UI集合（按队列顺序，最新的在前面）
-                        _recentSymbols.Clear();
+                _recentSymbols.Clear();
                         foreach (var item in _recentSymbolsQueue)
-                        {
-                            _recentSymbols.Add(item);
-                        }
+                {
+                    _recentSymbols.Add(item);
+                }
                         
                         Utils.AppSession.Log($"📊 UI已更新，显示 {_recentSymbols.Count} 个最近浏览合约（队列模式）");
                         
@@ -887,8 +887,8 @@ namespace TCClient.Views
                 Dispatcher.Invoke(() =>
                 {
                     if (MAPeriodTextBox != null)
-                    {
-                        MAPeriodTextBox.Text = _globalMAPeriod.ToString();
+                {
+                    MAPeriodTextBox.Text = _globalMAPeriod.ToString();
                     }
                     else
                     {
@@ -923,7 +923,7 @@ namespace TCClient.Views
                 if (updateTasks.Count > 0)
                 {
                     Utils.AppSession.Log($"📊 开始并行更新 {updateTasks.Count} 个K线图控件的均线参数");
-                    await Task.WhenAll(updateTasks);
+                await Task.WhenAll(updateTasks);
                     Utils.AppSession.Log($"✅ 完成 {updateTasks.Count} 个K线图控件的均线参数更新");
                 }
                 else
@@ -966,8 +966,8 @@ namespace TCClient.Views
                     {
                         // 在UI线程中再次检查chart是否为null（防御性编程）
                         if (chart != null)
-                        {
-                            chart.SetMAPeriod(_globalMAPeriod);
+                    {
+                        chart.SetMAPeriod(_globalMAPeriod);
                             Utils.AppSession.Log($"✅ 成功更新图表均线参数为: {_globalMAPeriod}");
                         }
                         else
