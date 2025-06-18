@@ -6,6 +6,21 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    
+    <!-- 应用程序图标 -->
+    <ApplicationIcon>Resources\app_icon.ico</ApplicationIcon>
+    
+    <!-- 版本信息 -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0</Version>
+    
+    <!-- 应用程序信息 -->
+    <AssemblyTitle>TCClient</AssemblyTitle>
+    <AssemblyDescription>期货交易客户端</AssemblyDescription>
+    <AssemblyCompany>TC Company</AssemblyCompany>
+    <AssemblyProduct>TCClient</AssemblyProduct>
+    <Copyright>Copyright © TC Company 2024</Copyright>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,12 +31,22 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.5" />
     <PackageReference Include="MySql.Data" Version="8.2.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    
+
+    
+    <!-- 图表库 -->
+    <PackageReference Include="OxyPlot.Wpf" Version="2.1.2" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <!-- 包含图标资源 -->
+  <ItemGroup>
+    <Resource Include="Resources\**\*" />
   </ItemGroup>
 
 </Project>

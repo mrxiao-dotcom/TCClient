@@ -90,8 +90,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="300"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="180"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -107,6 +106,8 @@
                 
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button Content="刷新数据" Command="{Binding RefreshCommand}" Width="100" Height="30" Margin="5"/>
+                    <Button Content="找寻做多机会" Command="{Binding ShowLongOpportunitiesCommand}" Width="120" Height="30" Margin="5" FontSize="12" FontWeight="Bold" Background="#007BFF" Foreground="White" BorderThickness="0"/>
+                    <Button Content="找寻做空机会" Command="{Binding ShowShortOpportunitiesCommand}" Width="120" Height="30" Margin="5" FontSize="12" FontWeight="Bold" Background="#DC3545" Foreground="White" BorderThickness="0"/>
                     <TextBlock Text="{Binding SelectedOpportunityType}" VerticalAlignment="Center" Margin="20,0,0,0" FontWeight="Bold"/>
                 </StackPanel>
             </Grid>
@@ -115,46 +116,56 @@
         <!-- 上半部分：市场总览 -->
         <Grid Grid.Row="1" Margin="10">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="500"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- 今日统计 -->
-            <Border Grid.Column="0" Background="White" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="8" Margin="5" Padding="15">
+            <!-- 今日统计 - 改为两行布局 -->
+            <Border Grid.Column="0" Background="White" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="8" Margin="5" Padding="12">
                 <StackPanel>
-                    <TextBlock Text="今日市场统计" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,10"/>
+                    <TextBlock Text="今日市场统计" FontSize="16" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,8"/>
                     
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="上涨:" FontSize="14" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TodayStats.RisingCount}" FontSize="24" FontWeight="Bold" Foreground="Red" Margin="5"/>
+                        <!-- 第一行：上涨、下跌 -->
+                        <StackPanel Grid.Row="0" Grid.Column="0" Margin="5">
+                            <TextBlock Text="上涨" FontSize="12" HorizontalAlignment="Center" Foreground="#666"/>
+                            <TextBlock Text="{Binding TodayStats.RisingCount}" FontSize="20" FontWeight="Bold" Foreground="Red" HorizontalAlignment="Center"/>
+                        </StackPanel>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="下跌:" FontSize="14" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding TodayStats.FallingCount}" FontSize="24" FontWeight="Bold" Foreground="Green" Margin="5"/>
+                        <StackPanel Grid.Row="0" Grid.Column="1" Margin="5">
+                            <TextBlock Text="下跌" FontSize="12" HorizontalAlignment="Center" Foreground="#666"/>
+                            <TextBlock Text="{Binding TodayStats.FallingCount}" FontSize="20" FontWeight="Bold" Foreground="Green" HorizontalAlignment="Center"/>
+                        </StackPanel>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="平盘:" FontSize="14" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding TodayStats.FlatCount}" FontSize="24" FontWeight="Bold" Foreground="Gray" Margin="5"/>
+                        <StackPanel Grid.Row="0" Grid.Column="2" Margin="5">
+                            <TextBlock Text="平盘" FontSize="12" HorizontalAlignment="Center" Foreground="#666"/>
+                            <TextBlock Text="{Binding TodayStats.FlatCount}" FontSize="20" FontWeight="Bold" Foreground="Gray" HorizontalAlignment="Center"/>
+                        </StackPanel>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="24h成交额:" FontSize="14" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding TodayStats.FormattedVolume}" FontSize="24" FontWeight="Bold" Foreground="Blue" Margin="5"/>
+                        <!-- 第二行：24h成交额 -->
+                        <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="5,10,5,0">
+                            <TextBlock Text="24h成交额" FontSize="12" HorizontalAlignment="Center" Foreground="#666"/>
+                            <TextBlock Text="{Binding TodayStats.FormattedVolume}" FontSize="18" FontWeight="Bold" Foreground="Blue" HorizontalAlignment="Center"/>
+                        </StackPanel>
                     </Grid>
                 </StackPanel>
             </Border>
 
-            <!-- 历史统计（最近20天） -->
-            <Border Grid.Column="1" Background="White" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="8" Margin="5" Padding="15">
+            <!-- 历史统计（最近20天） - 优化布局 -->
+            <Border Grid.Column="1" Background="White" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="8" Margin="5" Padding="12">
                 <StackPanel>
-                    <TextBlock Text="最近20天历史统计" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,10"/>
+                    <TextBlock Text="最近20天历史统计" FontSize="16" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,8"/>
                     
                     <ItemsControl ItemsSource="{Binding HistoricalStats}">
                         <ItemsControl.ItemsPanel>
@@ -164,7 +175,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Button Width="90" Height="70" Margin="2" BorderBrush="#DEE2E6" BorderThickness="1">
+                                <Button Width="75" Height="55" Margin="1.5" BorderBrush="#DEE2E6" BorderThickness="1">
                                     <Button.Style>
                                         <Style TargetType="Button">
                                             <Style.Triggers>
@@ -178,9 +189,9 @@
                                         </Style>
                                     </Button.Style>
                                     <StackPanel>
-                                        <TextBlock Text="{Binding FormattedDate}" FontSize="11" FontWeight="Bold"/>
-                                        <TextBlock Text="{Binding RiseFallRatio}" FontSize="12" FontWeight="Bold" Margin="0,3"/>
-                                        <TextBlock Text="{Binding FormattedVolume}" FontSize="9" Foreground="Gray"/>
+                                        <TextBlock Text="{Binding FormattedDate}" FontSize="10" FontWeight="Bold"/>
+                                        <TextBlock Text="{Binding RiseFallRatio}" FontSize="11" FontWeight="Bold" Margin="0,2"/>
+                                        <TextBlock Text="{Binding FormattedVolume}" FontSize="8" Foreground="Gray"/>
                                     </StackPanel>
                                 </Button>
                             </DataTemplate>
@@ -190,16 +201,8 @@
             </Border>
         </Grid>
 
-        <!-- 中部功能按钮区 -->
-        <Border Grid.Row="2" Background="#F8F9FA" BorderBrush="#DEE2E6" BorderThickness="0,1" Padding="15">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <Button Content="找寻做多机会" Command="{Binding ShowLongOpportunitiesCommand}" Width="150" Height="40" Margin="10,5" FontSize="14" FontWeight="Bold" Background="#007BFF" Foreground="White" BorderThickness="0"/>
-                <Button Content="找寻做空机会" Command="{Binding ShowShortOpportunitiesCommand}" Width="150" Height="40" Margin="10,5" FontSize="14" FontWeight="Bold" Background="#DC3545" Foreground="White" BorderThickness="0"/>
-            </StackPanel>
-        </Border>
-
         <!-- 下半部分：投资机会展示区 -->
-        <Grid Grid.Row="3" Margin="5">
+        <Grid Grid.Row="2" Margin="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="400"/>
                 <ColumnDefinition Width="*" MinWidth="400"/>

@@ -199,8 +199,17 @@ public partial class App : Application
         // 注册自选合约服务
         services.AddSingleton<FavoriteContractsService>();
         
+        // 注册策略追踪服务
+        services.AddSingleton<StrategyTrackingService>();
+        
         // 注册市场总览服务
         services.AddSingleton<MarketOverviewService>();
+        
+        // 注册窗口管理服务
+        services.AddSingleton<WindowManagerService>();
+        
+        // 注册全局快捷键管理器
+        services.AddSingleton<GlobalHotKeyManager>();
 
         // 注册 ViewModel
         services.AddSingleton<MainViewModel>();
@@ -219,6 +228,8 @@ public partial class App : Application
         services.AddTransient<OrderListViewModel>();
         services.AddTransient<PushStatisticsViewModel>();
         services.AddTransient<AccountQueryViewModel>();
+        services.AddTransient<StrategyTrackingViewModel>();
+        services.AddTransient<AddEditGroupViewModel>();
 
         // 注册 View
         services.AddTransient<MainWindow>();
@@ -229,6 +240,8 @@ public partial class App : Application
         services.AddTransient<RegisterWindow>();
         services.AddTransient<PushStatisticsWindow>();
         services.AddTransient<AccountQueryWindow>();
+        services.AddTransient<StrategyTrackingWindow>();
+        services.AddTransient<AddEditGroupWindow>();
     }
 
     protected override void OnStartup(StartupEventArgs e)
@@ -277,6 +290,8 @@ public partial class App : Application
             
             // 添加应用程序退出事件
             Current.Exit += Application_Exit;
+
+
 
             // 注册服务到ServiceLocator（为了向后兼容）
             LogManager.Log("App", "注册服务到ServiceLocator");
@@ -403,6 +418,18 @@ public partial class App : Application
             // 使用最简单的Show方法，避免复杂的逻辑
             mainWindow.Show();
             
+            // 初始化全局快捷键
+            try
+            {
+                var hotKeyManager = _serviceProvider.GetRequiredService<GlobalHotKeyManager>();
+                hotKeyManager.Initialize(mainWindow);
+                LogManager.Log("App", "全局快捷键已初始化");
+            }
+            catch (Exception hotKeyEx)
+            {
+                LogManager.LogException("App", hotKeyEx, "初始化全局快捷键失败");
+            }
+            
             LogManager.Log("App", "主窗口显示完成");
             
             // 更新状态栏信息
@@ -464,6 +491,40 @@ public partial class App : Application
             catch (Exception serviceEx)
                 {
                 LogManager.LogException("App", serviceEx, "停止后台服务管理器失败");
+            }
+            
+            // 停止窗口管理服务
+            try
+            {
+                LogManager.Log("App", "开始停止窗口管理服务...");
+                
+                var windowManager = _serviceProvider.GetService<WindowManagerService>();
+                if (windowManager != null)
+                {
+                    windowManager.Dispose();
+                    LogManager.Log("App", "窗口管理服务已停止并释放");
+                }
+            }
+            catch (Exception windowEx)
+            {
+                LogManager.LogException("App", windowEx, "停止窗口管理服务失败");
+            }
+            
+            // 停止全局快捷键管理器
+            try
+            {
+                LogManager.Log("App", "开始停止全局快捷键管理器...");
+                
+                var hotKeyManager = _serviceProvider.GetService<GlobalHotKeyManager>();
+                if (hotKeyManager != null)
+                {
+                    hotKeyManager.Dispose();
+                    LogManager.Log("App", "全局快捷键管理器已停止并释放");
+                }
+            }
+            catch (Exception hotKeyEx)
+            {
+                LogManager.LogException("App", hotKeyEx, "停止全局快捷键管理器失败");
             }
             
             // 停止所有后台线程和定时器
@@ -569,7 +630,7 @@ public partial class App : Application
             {
             LogManager.FlushLogs();
             }
-            catch (Exception logEx)
+            catch (Exception)
             {
                 // 忽略日志刷新错误
             }

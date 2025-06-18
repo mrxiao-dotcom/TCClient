@@ -401,8 +401,8 @@ namespace TCClient.ViewModels
                 LoadingMessage = "正在刷新数据...";
                 AppSession.Log("MarketOverviewViewModel: 刷新数据");
 
-                // 只清理过期缓存，不删除当天的缓存
-                _marketOverviewService.CleanupExpiredCache();
+                // 强制清理所有缓存，确保获取最新数据
+                _marketOverviewService.ClearAllCache();
 
                 // 步骤1: 刷新市场统计数据（这部分总是实时的）
                 LoadingProgress = 30;
@@ -506,7 +506,7 @@ namespace TCClient.ViewModels
 
         #region INotifyPropertyChanged
 
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
 
         protected virtual void OnPropertyChanged(string propertyName)
         {

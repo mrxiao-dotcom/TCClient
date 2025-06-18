@@ -4097,7 +4097,12 @@ namespace TCClient.Services
                                 symbol,
                                 MAX(high_price) as max_high,
                                 MIN(low_price) as min_low,
-                                FIRST_VALUE(open_price) OVER (PARTITION BY symbol ORDER BY open_time ASC) as first_open
+                                (SELECT open_price FROM kline_data k2 
+                                 WHERE k2.symbol = kline_data.symbol 
+                                 AND DATE(k2.open_time) >= DATE_SUB(CURDATE(), INTERVAL @days DAY)
+                                 AND DATE(k2.open_time) < CURDATE()
+                                 AND TIME_TO_SEC(TIMEDIFF(k2.close_time, k2.open_time)) >= 86000
+                                 ORDER BY k2.open_time ASC LIMIT 1) as first_open
                             FROM kline_data 
                             WHERE DATE(open_time) >= DATE_SUB(CURDATE(), INTERVAL @days DAY)
                             AND DATE(open_time) < CURDATE()
@@ -4157,7 +4162,12 @@ namespace TCClient.Services
                                     symbol,
                                     MAX(high_price) as max_high,
                                     MIN(low_price) as min_low,
-                                    FIRST_VALUE(open_price) OVER (PARTITION BY symbol ORDER BY open_time ASC) as first_open
+                                    (SELECT open_price FROM kline_data k2 
+                                     WHERE k2.symbol = kline_data.symbol 
+                                     AND DATE(k2.open_time) >= DATE_SUB(CURDATE(), INTERVAL @days DAY)
+                                     AND DATE(k2.open_time) < CURDATE()
+                                     AND TIME_TO_SEC(TIMEDIFF(k2.close_time, k2.open_time)) >= 86000
+                                     ORDER BY k2.open_time ASC LIMIT 1) as first_open
                                 FROM kline_data 
                                 WHERE DATE(open_time) >= DATE_SUB(CURDATE(), INTERVAL @days DAY)
                                 AND DATE(open_time) < CURDATE()

@@ -188,7 +188,7 @@ namespace TCClient.Models
         public string ChangeColor => ChangePercent > 0 ? "Red" : ChangePercent < 0 ? "Green" : "Gray";
 
         #region INotifyPropertyChanged
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
 
         protected virtual void OnPropertyChanged(string propertyName)
         {

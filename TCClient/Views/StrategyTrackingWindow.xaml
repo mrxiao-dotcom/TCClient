@@ -1,0 +1,309 @@
+<Window x:Class="TCClient.Views.StrategyTrackingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:TCClient.Views"
+        xmlns:utils="clr-namespace:TCClient.Utils"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        mc:Ignorable="d"
+        Title="策略跟踪" Height="800" Width="1400"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F5F5">
+
+    <Window.Resources>
+        <!-- 样式定义 -->
+        <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+
+        <Style x:Key="InfoTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#666666"/>
+            <Setter Property="Margin" Value="5,2"/>
+        </Style>
+
+        <Style x:Key="DataGridStyle" TargetType="DataGrid">
+            <Setter Property="AutoGenerateColumns" Value="False"/>
+            <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="CanUserDeleteRows" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="SelectionMode" Value="Single"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="AlternatingRowBackground" Value="#F9F9F9"/>
+            <Setter Property="RowHeight" Value="25"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+
+        <Style x:Key="ButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#4CAF50"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="4" 
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" 
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#45A049"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="#3D8B40"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Background" Value="#CCCCCC"/>
+                                <Setter Property="Foreground" Value="#666666"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ChartBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect ShadowDepth="2" Color="Gray" Opacity="0.3"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 工具栏 -->
+        <Border Grid.Row="0" Background="White" Padding="10" Margin="0,0,0,5">
+            <Border.Effect>
+                <DropShadowEffect ShadowDepth="1" Color="Gray" Opacity="0.3"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <Button Content="刷新数据" 
+                        Style="{StaticResource ButtonStyle}"
+                        Command="{Binding RefreshCommand}"
+                        IsEnabled="{Binding IsLoading, Converter={x:Static utils:InverseBooleanConverter.Instance}}"/>
+                
+                <Button Content="测试连接" 
+                        Style="{StaticResource ButtonStyle}"
+                        Click="TestConnection_Click"
+                        IsEnabled="{Binding IsLoading, Converter={x:Static utils:InverseBooleanConverter.Instance}}"/>
+                
+                <TextBlock Text="{Binding StatusMessage}" 
+                           VerticalAlignment="Center"
+                           Margin="20,0,0,0"
+                           FontSize="12"
+                           Foreground="#666"/>
+                
+                <!-- 加载指示器 -->
+                <ProgressBar Width="100" Height="4" 
+                             Margin="20,0,0,0"
+                             IsIndeterminate="{Binding IsLoading}"
+                             Visibility="{Binding IsLoading, Converter={x:Static utils:BooleanToVisibilityConverter.Instance}}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- 主内容区域 -->
+        <Grid Grid.Row="1" Margin="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="250"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 左侧：组合列表 -->
+            <Border Grid.Column="0" Style="{StaticResource ChartBorderStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="产品组合列表" Style="{StaticResource HeaderTextStyle}"/>
+                    
+                    <DataGrid Grid.Row="1" 
+                              ItemsSource="{Binding ProductGroups}"
+                              SelectedItem="{Binding SelectedGroup}"
+                              Style="{StaticResource DataGridStyle}">
+                        <DataGrid.InputBindings>
+                            <MouseBinding MouseAction="LeftDoubleClick" 
+                                          Command="{Binding LoadGroupSymbolsCommand}" 
+                                          CommandParameter="{Binding SelectedGroup}"/>
+                        </DataGrid.InputBindings>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="组合名称" Binding="{Binding GroupName}" Width="150"/>
+                            <DataGridTextColumn Header="合约数量" Binding="{Binding SymbolCount}" Width="80"/>
+                            <DataGridTextColumn Header="更新时间" Binding="{Binding UpdatedAt, StringFormat=MM-dd HH:mm}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Left" Margin="5">
+                        <Button Content="增加" Command="{Binding AddGroupCommand}" Style="{StaticResource ButtonStyle}" />
+                        <Button Content="修改" Command="{Binding EditGroupCommand}" Style="{StaticResource ButtonStyle}" IsEnabled="{Binding SelectedGroup, Converter={StaticResource NotNullToBoolConverter}}" />
+                        <Button Content="删除" Command="{Binding DeleteGroupCommand}" Style="{StaticResource ButtonStyle}" IsEnabled="{Binding SelectedGroup, Converter={StaticResource NotNullToBoolConverter}}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#E0E0E0"/>
+
+            <!-- 中间：组合内合约列表 -->
+            <Border Grid.Column="2" Style="{StaticResource ChartBorderStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="组合内合约列表" Style="{StaticResource HeaderTextStyle}"/>
+                    
+                    <DataGrid Grid.Row="1"
+                              x:Name="SymbolStatusDataGrid"
+                              ItemsSource="{Binding GroupSymbolStatusList}"
+                              SelectedItem="{Binding SelectedSymbol}"
+                              Style="{StaticResource DataGridStyle}"
+                              MouseDoubleClick="SymbolStatusDataGrid_MouseDoubleClick">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="*"/>
+                            <DataGridTextColumn Header="方向" Binding="{Binding StgDesc}" Width="60"/>
+                            <DataGridTextColumn Header="累计盈利" Binding="{Binding TotalProfit}" Width="80"/>
+                            <DataGridTextColumn Header="半小时盈亏" Binding="{Binding Winner}" Width="80"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch" Background="#E0E0E0"/>
+
+            <!-- 右侧：图表区域 -->
+            <Grid Grid.Column="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="5"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="5"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- 市场成交额曲线图 -->
+                <Border Grid.Row="0" Style="{StaticResource ChartBorderStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="市场成交额变化曲线" Style="{StaticResource HeaderTextStyle}"/>
+                        
+                        <!-- 这里将使用代码后台添加图表控件 -->
+                        <Border Grid.Row="1" x:Name="MarketVolumeChartContainer" 
+                                Background="White" 
+                                BorderThickness="1" 
+                                BorderBrush="#E0E0E0">
+                            <TextBlock Text="正在加载市场成交额数据..." 
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"
+                                       Foreground="#999"
+                                       FontSize="14"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch" Background="#E0E0E0"/>
+
+                <!-- 组合净值曲线图 -->
+                <Border Grid.Row="2" Style="{StaticResource ChartBorderStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="组合净值曲线图" Style="{StaticResource HeaderTextStyle}"/>
+                        
+                        <!-- 这里将使用代码后台添加图表控件 -->
+                        <Border Grid.Row="1" x:Name="GroupChartContainer" 
+                                Background="White" 
+                                BorderThickness="1" 
+                                BorderBrush="#E0E0E0">
+                            <TextBlock Text="选择组合后显示净值曲线" 
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"
+                                       Foreground="#999"
+                                       FontSize="14"/>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" Background="#E0E0E0"/>
+
+                <!-- 合约净值曲线图 -->
+                <Border Grid.Row="4" Style="{StaticResource ChartBorderStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="合约净值曲线图" Style="{StaticResource HeaderTextStyle}"/>
+                        
+                        <!-- 这里将使用代码后台添加图表控件 -->
+                        <Border Grid.Row="1" x:Name="SymbolChartContainer" 
+                                Background="White" 
+                                BorderThickness="1" 
+                                BorderBrush="#E0E0E0">
+                            <TextBlock Text="双击合约后显示净值曲线" 
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center"
+                                       Foreground="#999"
+                                       FontSize="14"/>
+                        </Border>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- 状态栏 -->
+        <StatusBar Grid.Row="2" Background="#F0F0F0">
+            <StatusBarItem>
+                <TextBlock Text="{Binding StatusMessage}" FontSize="11"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding ProductGroups.Count, StringFormat='组合数量: {0}'}" FontSize="11"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding GroupSymbols.Count, StringFormat='当前组合合约数: {0}'}" FontSize="11"/>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding Source={x:Static sys:DateTime.Now}, StringFormat='当前时间: {0:HH:mm:ss}'}" FontSize="11"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window> 

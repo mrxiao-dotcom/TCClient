@@ -1,0 +1,368 @@
+<Window x:Class="TCClient.Views.DrawdownAlertWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:TCClient.Converters"
+        mc:Ignorable="d"
+        Title="回撤预警监控" Height="800" Width="1400" WindowStartupLocation="CenterScreen">
+    
+    <Window.Resources>
+        <local:ChangeColorConverter x:Key="ChangeColorConverter"/>
+        <local:PriceFormatConverter x:Key="PriceFormatConverter"/>
+        
+        <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="#333"/>
+            <Setter Property="Margin" Value="5"/>
+        </Style>
+        
+        <Style x:Key="DataTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        
+        <Style x:Key="ButtonStyle" TargetType="Button">
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="Background" Value="#4CAF50"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="5"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <!-- 上涨回撤监控面板 -->
+        <Border Grid.Row="0" BorderBrush="#E0E0E0" BorderThickness="1" Margin="5">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <!-- 标题栏 -->
+                <Border Grid.Row="0" Background="#E8F5E8" Padding="10,5">
+                    <TextBlock Text="📈 上涨回撤监控（做多风险）" Style="{StaticResource HeaderTextStyle}" Foreground="#2E7D32"/>
+                </Border>
+                
+                <!-- 内容区域 -->
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="300"/>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="600"/>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <!-- 监控列表 -->
+                    <Border Grid.Column="0" BorderBrush="#E0E0E0" BorderThickness="0,0,1,0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- 添加/删除按钮 -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
+                                <Button Content="添加合约" Style="{StaticResource ButtonStyle}" 
+                                        Command="{Binding AddLongContractCommand}"/>
+                                <Button Content="删除合约" Style="{StaticResource ButtonStyle}" 
+                                        Background="#F44336"
+                                        Command="{Binding RemoveLongContractCommand}"/>
+                            </StackPanel>
+                            
+                            <!-- 合约列表 -->
+                            <ListView Grid.Row="1" x:Name="LongContractsList" 
+                                      ItemsSource="{Binding LongContracts}"
+                                      SelectedItem="{Binding SelectedLongContract}"
+                                      MouseDoubleClick="OnLongContractDoubleClick">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="合约" Width="70">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Symbol}" Style="{StaticResource DataTextStyle}"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="最新价" Width="90">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding CurrentPrice, Converter={StaticResource PriceFormatConverter}}" Style="{StaticResource DataTextStyle}"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="24h成交额" Width="70">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Volume24h, StringFormat={}{0:F0}万}" Style="{StaticResource DataTextStyle}"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="24h涨幅" Width="60">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Change24h, StringFormat={}{0:F2}%}" Style="{StaticResource DataTextStyle}">
+                                                        <TextBlock.Foreground>
+                                                            <Binding Path="Change24h" Converter="{StaticResource ChangeColorConverter}"/>
+                                                        </TextBlock.Foreground>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- 数据展示表格 -->
+                    <Border Grid.Column="2" BorderBrush="#E0E0E0" BorderThickness="0,0,1,0" Padding="5">
+                        <ListView ItemsSource="{Binding LongContracts}" 
+                                  SelectedItem="{Binding SelectedLongContract}"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="合约" Width="60">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Symbol}" Style="{StaticResource DataTextStyle}" FontWeight="Bold"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最新价" Width="90">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding CurrentPrice, Converter={StaticResource PriceFormatConverter}}" Style="{StaticResource DataTextStyle}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最高价" Width="90">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding RecentHighPrice, Converter={StaticResource PriceFormatConverter}}" Style="{StaticResource DataTextStyle}" Foreground="Red"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最高价时间" Width="90">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding HighPriceTime, StringFormat=MM-dd HH:mm}" Style="{StaticResource DataTextStyle}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最大回撤" Width="70">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding MaxDrawdown, StringFormat={}{0:F2}%}" Style="{StaticResource DataTextStyle}" Foreground="Red" FontWeight="Bold"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="当前回撤" Width="70">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding CurrentDrawdown, StringFormat={}{0:F2}%}" Style="{StaticResource DataTextStyle}" Foreground="Orange"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="回撤分钟" Width="70">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding CurrentDrawdownMinutes}" Style="{StaticResource DataTextStyle}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </Border>
+                    
+                    <!-- K线图区域 -->
+                    <Border Grid.Column="4" BorderBrush="#E0E0E0" BorderThickness="0" Padding="5">
+                        <Grid x:Name="LongKLineChartContainer">
+                            <TextBlock Text="双击左侧合约查看K线图" 
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center" 
+                                       Foreground="#999" 
+                                       FontSize="14"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+        
+        <!-- 分隔线 -->
+        <GridSplitter Grid.Row="1" HorizontalAlignment="Stretch" Background="#E0E0E0"/>
+        
+        <!-- 下跌回撤监控面板 -->
+        <Border Grid.Row="2" BorderBrush="#E0E0E0" BorderThickness="1" Margin="5">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <!-- 标题栏 -->
+                <Border Grid.Row="0" Background="#FFF3E0" Padding="10,5">
+                    <TextBlock Text="📉 下跌回撤监控（做空风险）" Style="{StaticResource HeaderTextStyle}" Foreground="#E65100"/>
+                </Border>
+                
+                <!-- 内容区域 -->
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="300"/>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="600"/>
+                        <ColumnDefinition Width="5"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <!-- 监控列表 -->
+                    <Border Grid.Column="0" BorderBrush="#E0E0E0" BorderThickness="0,0,1,0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- 添加/删除按钮 -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="5">
+                                <Button Content="添加合约" Style="{StaticResource ButtonStyle}" 
+                                        Background="#FF9800"
+                                        Command="{Binding AddShortContractCommand}"/>
+                                <Button Content="删除合约" Style="{StaticResource ButtonStyle}" 
+                                        Background="#F44336"
+                                        Command="{Binding RemoveShortContractCommand}"/>
+                            </StackPanel>
+                            
+                            <!-- 合约列表 -->
+                            <ListView Grid.Row="1" x:Name="ShortContractsList" 
+                                      ItemsSource="{Binding ShortContracts}"
+                                      SelectedItem="{Binding SelectedShortContract}"
+                                      MouseDoubleClick="OnShortContractDoubleClick">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="合约" Width="70">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Symbol}" Style="{StaticResource DataTextStyle}"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="最新价" Width="90">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding CurrentPrice, Converter={StaticResource PriceFormatConverter}}" Style="{StaticResource DataTextStyle}"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="24h成交额" Width="70">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Volume24h, StringFormat={}{0:F0}万}" Style="{StaticResource DataTextStyle}"/>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                        <GridViewColumn Header="24h涨幅" Width="60">
+                                            <GridViewColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Change24h, StringFormat={}{0:F2}%}" Style="{StaticResource DataTextStyle}">
+                                                        <TextBlock.Foreground>
+                                                            <Binding Path="Change24h" Converter="{StaticResource ChangeColorConverter}"/>
+                                                        </TextBlock.Foreground>
+                                                    </TextBlock>
+                                                </DataTemplate>
+                                            </GridViewColumn.CellTemplate>
+                                        </GridViewColumn>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- 数据展示表格 -->
+                    <Border Grid.Column="2" BorderBrush="#E0E0E0" BorderThickness="0,0,1,0" Padding="5">
+                        <ListView ItemsSource="{Binding ShortContracts}" 
+                                  SelectedItem="{Binding SelectedShortContract}"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                            <ListView.View>
+                                <GridView>
+                                    <GridViewColumn Header="合约" Width="60">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Symbol}" Style="{StaticResource DataTextStyle}" FontWeight="Bold"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最新价" Width="90">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding CurrentPrice, Converter={StaticResource PriceFormatConverter}}" Style="{StaticResource DataTextStyle}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最低价" Width="90">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding RecentLowPrice, Converter={StaticResource PriceFormatConverter}}" Style="{StaticResource DataTextStyle}" Foreground="Green"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最低价时间" Width="90">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding LowPriceTime, StringFormat=MM-dd HH:mm}" Style="{StaticResource DataTextStyle}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="最大回撤" Width="70">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding MaxDrawdown, StringFormat={}{0:F2}%}" Style="{StaticResource DataTextStyle}" Foreground="Red" FontWeight="Bold"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="当前回撤" Width="70">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding CurrentDrawdown, StringFormat={}{0:F2}%}" Style="{StaticResource DataTextStyle}" Foreground="Orange"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                    <GridViewColumn Header="回撤分钟" Width="70">
+                                        <GridViewColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding CurrentDrawdownMinutes}" Style="{StaticResource DataTextStyle}"/>
+                                            </DataTemplate>
+                                        </GridViewColumn.CellTemplate>
+                                    </GridViewColumn>
+                                </GridView>
+                            </ListView.View>
+                        </ListView>
+                    </Border>
+                    
+                    <!-- K线图区域 -->
+                    <Border Grid.Column="4" BorderBrush="#E0E0E0" BorderThickness="0" Padding="5">
+                        <Grid x:Name="ShortKLineChartContainer">
+                            <TextBlock Text="双击左侧合约查看K线图" 
+                                       HorizontalAlignment="Center" 
+                                       VerticalAlignment="Center" 
+                                       Foreground="#999" 
+                                       FontSize="14"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window> 

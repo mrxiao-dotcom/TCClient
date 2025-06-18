@@ -22,7 +22,7 @@ namespace TCClient.Services
         
         // 内存缓存
         private static readonly Dictionary<string, (DateTime CacheTime, object Data)> _memoryCache = new();
-        private static readonly TimeSpan _memoryCacheExpiry = TimeSpan.FromMinutes(5); // 5分钟内存缓存
+        private static readonly TimeSpan _memoryCacheExpiry = TimeSpan.FromMinutes(2); // 2分钟内存缓存，提高实时性
         
         // 可交易合约缓存
         private static HashSet<string> _tradableSymbolsCache = null;
@@ -298,8 +298,33 @@ namespace TCClient.Services
                 }
                 else
                 {
-                    LogManager.Log("MarketOverviewService", "警告：无法获取可交易合约列表，使用备用筛选逻辑");
-                    // 如果获取失败，使用原有的硬编码逻辑作为备用
+                    LogManager.Log("MarketOverviewService", "警告：无法获取可交易合约列表，使用所有USDT交易对作为备用");
+                    // 如果获取失败，尝试使用所有USDT交易对作为备用
+                    try
+                    {
+                        var allTickers = await _exchangeService.GetAllTickersAsync();
+                        if (allTickers != null && allTickers.Any())
+                        {
+                            var usdtSymbols = allTickers
+                                .Where(t => t.Symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase))
+                                .Select(t => t.Symbol)
+                                .ToList();
+                            
+                            if (usdtSymbols.Any())
+                            {
+                                _tradableSymbolsCache = new HashSet<string>(usdtSymbols, StringComparer.OrdinalIgnoreCase);
+                                _tradableSymbolsCacheTime = now;
+                                LogManager.Log("MarketOverviewService", $"使用备用方案：缓存 {_tradableSymbolsCache.Count} 个USDT交易对");
+                                return _tradableSymbolsCache;
+                            }
+                        }
+                    }
+                    catch (Exception backupEx)
+                    {
+                        LogManager.LogException("MarketOverviewService", backupEx, "备用方案也失败，使用硬编码逻辑");
+                    }
+                    
+                    // 最后的备用方案：返回null，让IsSymbolTradable使用硬编码逻辑
                     return null;
                 }
 
@@ -327,7 +352,13 @@ namespace TCClient.Services
                 return _tradableSymbolsCache.Contains(symbol);
             }
 
-            // 如果没有缓存，使用备用逻辑
+            // 临时修复：如果没有缓存且是USDT交易对，默认允许（使用备用逻辑验证）
+            if (symbol.EndsWith("USDT", StringComparison.OrdinalIgnoreCase))
+            {
+                return IsSymbolTradableFallback(symbol);
+            }
+
+            // 其他情况使用备用逻辑
             return IsSymbolTradableFallback(symbol);
         }
 
@@ -955,6 +986,33 @@ namespace TCClient.Services
                 _memoryCache[key] = (DateTime.Now, data);
                 LogManager.Log("MarketOverviewService", $"设置内存缓存: {key}");
                 return data;
+            }
+        }
+
+        /// <summary>
+        /// 强制清理所有缓存（用于修复后立即生效）
+        /// </summary>
+        public void ClearAllCache()
+        {
+            try
+            {
+                LogManager.Log("MarketOverviewService", "强制清理所有缓存...");
+                
+                // 清理内存缓存
+                lock (_memoryCache)
+                {
+                    _memoryCache.Clear();
+                }
+                
+                // 清理可交易合约缓存
+                _tradableSymbolsCache = null;
+                _tradableSymbolsCacheTime = DateTime.MinValue;
+                
+                LogManager.Log("MarketOverviewService", "所有缓存已清理完成");
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("MarketOverviewService", ex, "清理缓存失败");
             }
         }
 

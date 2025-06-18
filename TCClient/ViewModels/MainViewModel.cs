@@ -21,6 +21,7 @@ namespace TCClient.ViewModels
         private readonly LocalConfigService _configService;
         private readonly IUserService _userService;
         private readonly IMessageService _messageService;
+        private readonly WindowManagerService _windowManager;
         private string _statusMessage;
         private string _currentUser;
         private string _currentAccount;
@@ -34,6 +35,7 @@ namespace TCClient.ViewModels
         private object _currentView;
         private string _databaseInfo;
         private string _currentAccountIdDisplay;
+        private string _openWindowsStatus;
         private static readonly string LogFilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
             "TCClient_MainViewModel.log");
@@ -196,6 +198,19 @@ namespace TCClient.ViewModels
             set { _currentAccountIdDisplay = value; OnPropertyChanged(); }
         }
 
+        public string OpenWindowsStatus
+        {
+            get => _openWindowsStatus;
+            set
+            {
+                if (_openWindowsStatus != value)
+                {
+                    _openWindowsStatus = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
         public ICommand FindOpportunityCommand { get; }
         public ICommand ConfigureAccountCommand { get; }
         public ICommand ConfigureDatabaseCommand { get; }
@@ -219,17 +234,24 @@ namespace TCClient.ViewModels
         public ICommand ShowNetworkDiagnosticCommand { get; }
         public ICommand ShowServiceManagerCommand { get; }
         public ICommand ShowMarketOverviewCommand { get; }
+        public ICommand CloseAllChildWindowsCommand { get; }
+        public ICommand ShowWindowSwitcherCommand { get; }
+        public ICommand ShowBinanceApiConfigCommand { get; }
+        public ICommand ShowDrawdownAlertCommand { get; }
+        public ICommand ShowStrategyTrackingCommand { get; }
 
         public MainViewModel(
             IDatabaseService databaseService,
             LocalConfigService configService,
             IUserService userService,
-            IMessageService messageService)
+            IMessageService messageService,
+            WindowManagerService windowManager)
         {
             _databaseService = databaseService;
             _configService = configService;
             _userService = userService;
             _messageService = messageService;
+            _windowManager = windowManager;
 
             _accounts = new ObservableCollection<TradingAccount>();
             _positions = new ObservableCollection<SimulationOrder>();
@@ -256,12 +278,18 @@ namespace TCClient.ViewModels
             ShowNetworkDiagnosticCommand = new RelayCommand(ShowNetworkDiagnostic);
             ShowServiceManagerCommand = new RelayCommand(ShowServiceManager);
             ShowMarketOverviewCommand = new RelayCommand(ShowMarketOverview);
+            CloseAllChildWindowsCommand = new RelayCommand(CloseAllChildWindows);
+            ShowWindowSwitcherCommand = new RelayCommand(ShowWindowSwitcher);
+            ShowBinanceApiConfigCommand = new RelayCommand(ShowBinanceApiConfig);
+            ShowDrawdownAlertCommand = new RelayCommand(ShowDrawdownAlert);
+            ShowStrategyTrackingCommand = new RelayCommand(ShowStrategyTracking);
 
             // 初始化状态
             StatusMessage = "就绪";
             CurrentUser = "未登录";
             CurrentDatabase = "未连接";
             DatabaseInfo = "未连接";
+            OpenWindowsStatus = "无打开的子窗口";
 
             // 加载初始数据
             InitializeAsync();
@@ -388,7 +416,7 @@ namespace TCClient.ViewModels
                 {
                     Owner = Application.Current.MainWindow
                 };
-                window.ShowDialog();
+                window.Show(); // 改为非模态窗口，允许与其他窗口切换
             }
             catch (Exception ex)
             {
@@ -428,50 +456,7 @@ namespace TCClient.ViewModels
         {
             try
             {
-                // 获取当前活动窗口作为Owner
-                Window ownerWindow = null;
-                foreach (Window win in Application.Current.Windows)
-                {
-                    if (win.IsActive)
-                    {
-                        ownerWindow = win;
-                        break;
-                    }
-                }
-                
-                // 如果没有活动窗口，使用第一个可见窗口
-                if (ownerWindow == null)
-                {
-                    foreach (Window win in Application.Current.Windows)
-                    {
-                        if (win.IsVisible)
-                        {
-                            ownerWindow = win;
-                            break;
-                        }
-                    }
-                }
-
-                // 首先尝试显示数据库设置向导
-                var setupWizard = new DatabaseSetupWizard();
-                if (ownerWindow != null)
-                {
-                    setupWizard.Owner = ownerWindow;
-                }
-                setupWizard.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-                var result = setupWizard.ShowDialog();
-                
-                // 如果用户取消了向导，则显示高级配置窗口
-                if (result != true)
-                {
-                    var configWindow = new DatabaseConfigWindow();
-                    if (ownerWindow != null)
-                    {
-                        configWindow.Owner = ownerWindow;
-                    }
-                    configWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-                    configWindow.ShowDialog();
-                }
+                _windowManager.ShowDatabaseConfigWindow(Application.Current.MainWindow);
             }
             catch (Exception ex)
             {
@@ -611,37 +596,7 @@ namespace TCClient.ViewModels
         {
             try
             {
-                // 获取当前活动窗口作为Owner
-                Window ownerWindow = null;
-                foreach (Window win in Application.Current.Windows)
-                {
-                    if (win.IsActive)
-                    {
-                        ownerWindow = win;
-                        break;
-                    }
-                }
-                
-                // 如果没有活动窗口，使用第一个可见窗口
-                if (ownerWindow == null)
-                {
-                    foreach (Window win in Application.Current.Windows)
-                    {
-                        if (win.IsVisible)
-                        {
-                            ownerWindow = win;
-                            break;
-                        }
-                    }
-                }
-
-                var window = new AccountConfigWindow();
-                if (ownerWindow != null)
-                {
-                    window.Owner = ownerWindow;
-                }
-                window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-                window.ShowDialog();
+                _windowManager.ShowAccountManagementWindow(Application.Current.MainWindow);
             }
             catch (Exception ex)
             {
@@ -937,20 +892,8 @@ namespace TCClient.ViewModels
                     return;
                 }
 
-                var services = ((App)Application.Current).Services;
-                var viewModel = services.GetRequiredService<PushStatisticsViewModel>();
-                var window = new PushStatisticsWindow(viewModel)
-                {
-                    Owner = Application.Current.MainWindow
-                };
-                
-                // 确保当前账户ID已设置
-                AppSession.CurrentAccountId = SelectedAccount.Id;
-                
-                // 窗口显示后立即刷新数据
-                window.Loaded += async (s, e) => await viewModel.RefreshDataAsync();
-                
-                window.ShowDialog();
+                _windowManager.ShowPushStatisticsWindow((int)SelectedAccount.Id);
+                UpdateOpenWindowsStatus();
             }
             catch (Exception ex)
             {
@@ -986,7 +929,7 @@ namespace TCClient.ViewModels
                 {
                     Owner = Application.Current.MainWindow
                 };
-                window.ShowDialog();
+                window.Show(); // 改为非模态窗口，允许与其他窗口切换
             }
             catch (Exception ex)
             {
@@ -1013,17 +956,8 @@ namespace TCClient.ViewModels
                     return;
                 }
 
-                var services = ((App)Application.Current).Services;
-                var viewModel = services.GetRequiredService<AccountQueryViewModel>();
-                var window = new AccountQueryWindow(viewModel)
-                {
-                    Owner = Application.Current.MainWindow
-                };
-                
-                // 确保当前账户ID已设置
-                AppSession.CurrentAccountId = SelectedAccount.Id;
-                
-                window.ShowDialog();
+                _windowManager.ShowAccountQueryWindow((int)SelectedAccount.Id);
+                UpdateOpenWindowsStatus();
             }
             catch (Exception ex)
             {
@@ -1061,10 +995,8 @@ namespace TCClient.ViewModels
             try
             {
                 LogMenuError(nameof(ShowServiceManager), null);
-                var window = new Views.ServiceManagerWindow();
-                window.Owner = Application.Current.MainWindow;
-                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                window.ShowDialog();
+                _windowManager.ShowServiceManagerWindow();
+                UpdateOpenWindowsStatus();
             }
             catch (Exception ex)
             {
@@ -1081,10 +1013,8 @@ namespace TCClient.ViewModels
         {
             try
             {
-                var window = new Views.MarketOverviewWindow();
-                window.Owner = Application.Current.MainWindow;
-                window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
-                window.Show();
+                _windowManager.ShowMarketOverviewWindow();
+                UpdateOpenWindowsStatus();
                 LogToFile("成功打开市场总览窗口");
             }
             catch (Exception ex)
@@ -1136,6 +1066,128 @@ namespace TCClient.ViewModels
                 // 忽略日志写入失败
             }
             */
+        }
+
+        /// <summary>
+        /// 更新打开窗口状态信息
+        /// </summary>
+        public void UpdateOpenWindowsStatus()
+        {
+            try
+            {
+                OpenWindowsStatus = _windowManager.GetWindowStatus();
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("MainViewModel", ex, "更新窗口状态失败");
+                OpenWindowsStatus = "窗口状态获取失败";
+            }
+        }
+        
+        /// <summary>
+        /// 关闭所有子窗口
+        /// </summary>
+        public void CloseAllChildWindows()
+        {
+            try
+            {
+                _windowManager.CloseAllChildWindows();
+                UpdateOpenWindowsStatus();
+                LogToFile("已关闭所有子窗口");
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(CloseAllChildWindows), ex);
+                _messageService.ShowMessage(
+                    $"关闭子窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+        
+        /// <summary>
+        /// 显示窗口切换器
+        /// </summary>
+        private void ShowWindowSwitcher()
+        {
+            try
+            {
+                _windowManager.ToggleWindowSwitcher();
+                LogToFile("切换窗口切换器显示状态");
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowWindowSwitcher), ex);
+                _messageService.ShowMessage(
+                    $"显示窗口切换器失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowBinanceApiConfig()
+        {
+            try
+            {
+                var configWindow = new TCClient.Views.BinanceApiConfigWindow()
+                {
+                    Owner = System.Windows.Application.Current.MainWindow
+                };
+                configWindow.ShowDialog();
+                LogToFile("打开币安API配置窗口");
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowBinanceApiConfig), ex);
+                _messageService.ShowMessage(
+                    $"打开币安API配置窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowDrawdownAlert()
+        {
+            try
+            {
+                _windowManager.ShowDrawdownAlertWindow();
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowDrawdownAlert), ex);
+                _messageService.ShowMessage(
+                    $"打开回撤预警窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+
+        private void ShowStrategyTracking()
+        {
+            try
+            {
+                var services = ((App)Application.Current).Services;
+                var viewModel = services.GetRequiredService<StrategyTrackingViewModel>();
+                var window = new StrategyTrackingWindow(viewModel)
+                {
+                    Owner = Application.Current.MainWindow
+                };
+                window.Show(); // 使用非模态窗口
+                UpdateOpenWindowsStatus();
+            }
+            catch (Exception ex)
+            {
+                LogMenuError(nameof(ShowStrategyTracking), ex);
+                _messageService.ShowMessage(
+                    $"打开策略跟踪窗口失败：{ex.Message}",
+                    "错误",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
     }
 } 

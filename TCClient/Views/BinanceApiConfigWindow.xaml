@@ -1,0 +1,69 @@
+<Window x:Class="TCClient.Views.BinanceApiConfigWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="币安API配置" Height="400" Width="600"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="10"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="10"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 标题 -->
+        <TextBlock Grid.Row="0" Text="币安API配置" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center"/>
+
+        <!-- 说明文字 -->
+        <TextBlock Grid.Row="2" TextWrapping="Wrap" Foreground="Gray">
+            <Run Text="配置币安API密钥后，回撤预警功能将使用真实的市场数据。"/>
+            <LineBreak/>
+            <Run Text="如果不配置，系统将使用币安公共API（有请求限制）。"/>
+        </TextBlock>
+
+        <!-- API Key -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="API Key:" VerticalAlignment="Center"/>
+            <TextBox Grid.Column="1" x:Name="ApiKeyTextBox" Height="30" VerticalContentAlignment="Center"/>
+        </Grid>
+
+        <!-- Secret Key -->
+        <Grid Grid.Row="6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Secret Key:" VerticalAlignment="Center"/>
+            <PasswordBox Grid.Column="1" x:Name="SecretKeyPasswordBox" Height="30" VerticalContentAlignment="Center"/>
+        </Grid>
+
+        <!-- 启用选项 -->
+        <CheckBox Grid.Row="8" x:Name="IsEnabledCheckBox" Content="启用币安API" IsChecked="False"/>
+
+        <!-- 按钮区域 -->
+        <StackPanel Grid.Row="10" Orientation="Horizontal" HorizontalAlignment="Center">
+            <Button x:Name="TestConnectionButton" Content="测试连接" Width="100" Height="35" Margin="0,0,10,0" Click="TestConnectionButton_Click"/>
+            <Button x:Name="SaveButton" Content="保存" Width="100" Height="35" Margin="0,0,10,0" Click="SaveButton_Click"/>
+            <Button x:Name="CancelButton" Content="取消" Width="100" Height="35" Click="CancelButton_Click"/>
+        </StackPanel>
+
+        <!-- 状态信息 -->
+        <Border Grid.Row="12" Background="#F0F0F0" Padding="10" CornerRadius="5" Margin="0,10,0,0">
+            <TextBlock x:Name="StatusTextBlock" Text="请输入币安API密钥信息" Foreground="Gray"/>
+        </Border>
+    </Grid>
+</Window> 

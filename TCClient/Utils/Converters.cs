@@ -8,6 +8,8 @@ namespace TCClient.Utils
 {
     public class BooleanToVisibilityConverter : IValueConverter
     {
+        public static readonly BooleanToVisibilityConverter Instance = new();
+
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             if (value is bool boolValue)
@@ -42,6 +44,21 @@ namespace TCClient.Utils
                 }
             }
             return false;
+        }
+    }
+
+    public class InverseBooleanConverter : IValueConverter
+    {
+        public static readonly InverseBooleanConverter Instance = new();
+
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return value is bool boolValue ? !boolValue : true;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return value is bool boolValue ? !boolValue : false;
         }
     }
 
@@ -142,6 +159,61 @@ namespace TCClient.Utils
                 return result;
             }
             return 0m;
+        }
+    }
+
+    public class NotNullToBoolConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            return value != null;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class StgToColorConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is int stg)
+            {
+                return stg switch
+                {
+                    1 or 2 => new SolidColorBrush(Colors.Red),      // 多头显示红色
+                    -1 or -2 => new SolidColorBrush(Colors.Green),  // 空头显示绿色
+                    0 => new SolidColorBrush(Colors.Gray),          // 空仓显示灰色
+                    _ => new SolidColorBrush(Colors.Black)          // 其他显示黑色
+                };
+            }
+            return new SolidColorBrush(Colors.Black);
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public class IndexConverter : IValueConverter
+    {
+        public static readonly IndexConverter Instance = new();
+
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            if (value is int index)
+            {
+                var offset = parameter != null ? System.Convert.ToInt32(parameter) : 0;
+                return (index + offset).ToString();
+            }
+            return "1";
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotImplementedException();
         }
     }
 } 
