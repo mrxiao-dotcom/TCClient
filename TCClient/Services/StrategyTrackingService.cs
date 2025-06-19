@@ -507,6 +507,7 @@ namespace TCClient.Services
 
         /// <summary>
         /// 获取所有可用合约的状态列表（用于候选池）
+        /// 只显示24小时内有更新的合约
         /// </summary>
         public async Task<List<SymbolStatus>> GetAllSymbolStatusAsync()
         {
@@ -516,13 +517,60 @@ namespace TCClient.Services
                 using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
                 
-                // 尝试从 stratage_latest_gate 表获取数据，如果没有成交额字段则使用默认值
-                var sql = @"
-                    SELECT product_code, stg, total_profit, winner 
-                    FROM stratage_latest_gate 
-                    ORDER BY total_profit DESC";
+                // 计算24小时前的时间
+                var cutoffTime = DateTime.Now.AddHours(-24);
+                
+                // 尝试多个可能的时间字段名称
+                var timeFields = new[] { "update_time", "updated_at", "timestamp", "create_time", "created_at", "stratage_time" };
+                var sql = "";
+                
+                // 先检查表结构，找到时间字段
+                foreach (var timeField in timeFields)
+                {
+                    try
+                    {
+                        var testSql = $@"
+                            SELECT product_code, stg, total_profit, winner, {timeField}
+                            FROM stratage_latest_gate 
+                            WHERE {timeField} >= @cutoffTime
+                            ORDER BY total_profit DESC 
+                            LIMIT 1";
+                        
+                        using var testCommand = new MySqlCommand(testSql, connection);
+                        testCommand.Parameters.Add(new MySqlParameter("@cutoffTime", cutoffTime));
+                        using var testReader = await testCommand.ExecuteReaderAsync();
+                        testReader.Close();
+                        
+                        // 如果没有异常，说明找到了正确的时间字段
+                        sql = $@"
+                            SELECT product_code, stg, total_profit, winner, {timeField}
+                            FROM stratage_latest_gate 
+                            WHERE {timeField} >= @cutoffTime
+                            ORDER BY total_profit DESC";
+                        break;
+                    }
+                    catch
+                    {
+                        // 继续尝试下一个字段
+                        continue;
+                    }
+                }
+                
+                // 如果没有找到时间字段，使用原始查询但记录警告
+                if (string.IsNullOrEmpty(sql))
+                {
+                    _logger.LogWarning("未找到时间字段，无法过滤24小时内的数据，返回所有数据");
+                    sql = @"
+                        SELECT product_code, stg, total_profit, winner 
+                        FROM stratage_latest_gate 
+                        ORDER BY total_profit DESC";
+                }
                 
                 using var command = new MySqlCommand(sql, connection);
+                if (sql.Contains("@cutoffTime"))
+                {
+                    command.Parameters.Add(new MySqlParameter("@cutoffTime", cutoffTime));
+                }
                 using var reader = await command.ExecuteReaderAsync();
                 
                 var random = new Random();
@@ -539,7 +587,10 @@ namespace TCClient.Services
                     });
                 }
                 
-                _logger.LogInformation($"获取到 {result.Count} 个合约状态数据");
+                var logMessage = sql.Contains("@cutoffTime") 
+                    ? $"获取到 {result.Count} 个24小时内更新的合约状态数据（过滤时间: {cutoffTime:yyyy-MM-dd HH:mm:ss}）"
+                    : $"获取到 {result.Count} 个合约状态数据（未进行时间过滤）";
+                _logger.LogInformation(logMessage);
             }
             catch (Exception ex)
             {

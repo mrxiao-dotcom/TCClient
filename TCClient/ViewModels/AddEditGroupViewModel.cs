@@ -19,6 +19,7 @@ namespace TCClient.ViewModels
         private string? _selectedGroupSymbol;
         private string _selectedStgFilter = "全部";
         private string _selectedSortOption = "成交额";
+        private string _statusMessage = "准备就绪";
 
         public AddEditGroupViewModel(StrategyTrackingService strategyService)
         {
@@ -37,9 +38,11 @@ namespace TCClient.ViewModels
             RemoveSelectedGroupSymbolsCommand = new RelayCommand(RemoveSelectedGroupSymbols);
             SaveCommand = new RelayCommand(async () => await SaveAsync());
             CancelCommand = new RelayCommand(Cancel);
+            RefreshCandidatesCommand = new RelayCommand(async () => await LoadCandidateSymbolsAsync());
             
             // 加载候选池数据
-            _ = LoadCandidateSymbolsAsync();
+            StatusMessage = "正在初始化候选池...";
+            _ = Task.Run(async () => await LoadCandidateSymbolsAsync());
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -81,6 +84,12 @@ namespace TCClient.ViewModels
             }
         }
 
+        public string StatusMessage
+        {
+            get => _statusMessage;
+            set => SetProperty(ref _statusMessage, value);
+        }
+
         public ObservableCollection<string> GroupSymbols { get; }
         public ObservableCollection<CandidateSymbol> CandidateSymbols { get; }
         public ObservableCollection<CandidateSymbol> SelectedCandidates { get; }
@@ -92,6 +101,7 @@ namespace TCClient.ViewModels
         public ICommand RemoveSelectedGroupSymbolsCommand { get; }
         public ICommand SaveCommand { get; }
         public ICommand CancelCommand { get; }
+        public ICommand RefreshCandidatesCommand { get; }
 
         // 用于编辑模式
         public ProductGroup? EditingGroup { get; set; }
@@ -126,8 +136,13 @@ namespace TCClient.ViewModels
         {
             try
             {
-                // 传递空列表获取所有合约状态
-                var symbolStatuses = await _strategyService.GetSymbolStatusListAsync(new List<string>());
+                StatusMessage = "正在连接数据库，加载候选池数据（过滤24小时内更新的合约）...";
+                
+                // 获取所有合约状态
+                var symbolStatuses = await _strategyService.GetAllSymbolStatusAsync();
+                
+                StatusMessage = $"数据库连接成功，获取到 {symbolStatuses.Count} 个24小时内更新的合约状态，正在处理...";
+                
                 var candidates = new List<CandidateSymbol>();
                 
                 foreach (var status in symbolStatuses)
@@ -139,19 +154,44 @@ namespace TCClient.ViewModels
                         Stg = status.Stg,
                         StgDesc = status.StgDesc,
                         TotalProfit = status.TotalProfit,
-                        Volume24h = 0 // 可以后续从其他表获取
+                        Volume24h = (long)status.Volume24h // 使用从数据库获取的成交额
                     });
                 }
 
-                CandidateSymbols.Clear();
-                foreach (var candidate in candidates)
+                // 在UI线程上更新集合
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
-                    CandidateSymbols.Add(candidate);
-                }
+                    CandidateSymbols.Clear();
+                    foreach (var candidate in candidates)
+                    {
+                        CandidateSymbols.Add(candidate);
+                    }
+                    StatusMessage = $"候选池加载完成，共 {CandidateSymbols.Count} 个候选合约（仅显示24小时内更新的合约）";
+                });
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"加载候选池失败: {ex.Message}");
+                StatusMessage = $"数据库连接失败或24小时内无更新合约: {ex.Message}，正在使用测试数据...";
+                
+                // 尝试使用测试数据
+                try
+                {
+                    var testCandidates = GetTestCandidates();
+                    
+                    System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        CandidateSymbols.Clear();
+                        foreach (var candidate in testCandidates)
+                        {
+                            CandidateSymbols.Add(candidate);
+                        }
+                        StatusMessage = $"使用测试数据，共 {CandidateSymbols.Count} 个候选合约";
+                    });
+                }
+                catch (Exception testEx)
+                {
+                    StatusMessage = $"加载失败: 数据库连接失败且测试数据也无法加载 - {testEx.Message}";
+                }
             }
         }
 
@@ -159,8 +199,10 @@ namespace TCClient.ViewModels
         {
             try
             {
-                // 传递空列表获取所有合约状态
-                var symbolStatuses = await _strategyService.GetSymbolStatusListAsync(new List<string>());
+                StatusMessage = $"正在应用筛选条件: {SelectedStgFilter} / {SelectedSortOption}...";
+                
+                // 获取所有合约状态
+                var symbolStatuses = await _strategyService.GetAllSymbolStatusAsync();
                 var candidates = new List<CandidateSymbol>();
                 
                 foreach (var status in symbolStatuses)
@@ -182,7 +224,7 @@ namespace TCClient.ViewModels
                         Stg = status.Stg,
                         StgDesc = status.StgDesc,
                         TotalProfit = status.TotalProfit,
-                        Volume24h = 0 // 可以后续从其他表获取
+                        Volume24h = (long)status.Volume24h // 使用从数据库获取的成交额
                     });
                 }
 
@@ -193,15 +235,19 @@ namespace TCClient.ViewModels
                     _ => candidates.OrderByDescending(c => c.Volume24h).ToList() // "成交额"
                 };
 
-                CandidateSymbols.Clear();
-                foreach (var candidate in candidates)
+                System.Windows.Application.Current.Dispatcher.Invoke(() =>
                 {
-                    CandidateSymbols.Add(candidate);
-                }
+                    CandidateSymbols.Clear();
+                    foreach (var candidate in candidates)
+                    {
+                        CandidateSymbols.Add(candidate);
+                    }
+                    StatusMessage = $"筛选完成，找到 {candidates.Count} 个符合条件的合约（仅24小时内更新）";
+                });
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"筛选候选池失败: {ex.Message}");
+                StatusMessage = $"筛选失败: {ex.Message}";
             }
         }
 
@@ -215,8 +261,33 @@ namespace TCClient.ViewModels
 
         private async Task AddSelectedCandidatesAsync()
         {
-            // 这里需要获取DataGrid的选中项，暂时先不实现
-            // 在实际使用中，可以通过View传递选中的项目
+            try
+            {
+                if (SelectedCandidates.Count == 0)
+                {
+                    StatusMessage = "请先选择要添加的合约";
+                    return;
+                }
+
+                var addedCount = 0;
+                foreach (var candidate in SelectedCandidates)
+                {
+                    if (!GroupSymbols.Contains(candidate.Symbol))
+                    {
+                        GroupSymbols.Add(candidate.Symbol);
+                        addedCount++;
+                    }
+                }
+
+                StatusMessage = addedCount > 0 ? 
+                    $"已添加 {addedCount} 个合约到组合中，组合当前共有 {GroupSymbols.Count} 个合约" : 
+                    "所选合约已存在于组合中";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"添加合约失败: {ex.Message}";
+            }
+            
             await Task.CompletedTask;
         }
 
@@ -321,6 +392,24 @@ namespace TCClient.ViewModels
             field = value;
             OnPropertyChanged(propertyName);
             return true;
+        }
+
+        /// <summary>
+        /// 获取测试候选数据
+        /// </summary>
+        private List<CandidateSymbol> GetTestCandidates()
+        {
+            return new List<CandidateSymbol>
+            {
+                new CandidateSymbol { Symbol = "BTCUSDT", Stg = 1, StgDesc = "多头", TotalProfit = 1250.5m, Volume24h = 100000000 },
+                new CandidateSymbol { Symbol = "ETHUSDT", Stg = -1, StgDesc = "空头", TotalProfit = -850.2m, Volume24h = 80000000 },
+                new CandidateSymbol { Symbol = "ADAUSDT", Stg = 0, StgDesc = "空仓", TotalProfit = 0, Volume24h = 50000000 },
+                new CandidateSymbol { Symbol = "DOTUSDT", Stg = 2, StgDesc = "多头", TotalProfit = 650.8m, Volume24h = 30000000 },
+                new CandidateSymbol { Symbol = "LINKUSDT", Stg = -2, StgDesc = "空头", TotalProfit = -450.3m, Volume24h = 25000000 },
+                new CandidateSymbol { Symbol = "UNIUSDT", Stg = 1, StgDesc = "多头", TotalProfit = 320.1m, Volume24h = 20000000 },
+                new CandidateSymbol { Symbol = "MATICUSDT", Stg = 0, StgDesc = "空仓", TotalProfit = 0, Volume24h = 15000000 },
+                new CandidateSymbol { Symbol = "AVAXUSDT", Stg = 1, StgDesc = "多头", TotalProfit = 180.5m, Volume24h = 12000000 }
+            };
         }
     }
 

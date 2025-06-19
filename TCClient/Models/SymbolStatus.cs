@@ -4,6 +4,11 @@ namespace TCClient.Models
 {
     public class SymbolStatus : INotifyPropertyChanged
     {
+        /// <summary>
+        /// 序号
+        /// </summary>
+        public int SequenceNumber { get; set; }
+
         public string Symbol { get; set; } = "";
         public int Stg { get; set; }
         public decimal TotalProfit { get; set; }

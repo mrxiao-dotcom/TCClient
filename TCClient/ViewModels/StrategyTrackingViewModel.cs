@@ -317,8 +317,12 @@ namespace TCClient.ViewModels
                 App.Current.Dispatcher.Invoke(() =>
                 {
                     GroupSymbolStatusList.Clear();
+                    int sequenceNumber = 1;
                     foreach (var s in statusList)
+                    {
+                        s.SequenceNumber = sequenceNumber++;
                         GroupSymbolStatusList.Add(s);
+                    }
                 });
 
                 // 加载组合净值曲线

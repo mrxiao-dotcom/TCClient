@@ -188,6 +188,7 @@
                               Style="{StaticResource DataGridStyle}"
                               MouseDoubleClick="SymbolStatusDataGrid_MouseDoubleClick">
                         <DataGrid.Columns>
+                            <DataGridTextColumn Header="序号" Binding="{Binding SequenceNumber}" Width="50"/>
                             <DataGridTextColumn Header="合约" Binding="{Binding Symbol}" Width="*"/>
                             <DataGridTextColumn Header="方向" Binding="{Binding StgDesc}" Width="60"/>
                             <DataGridTextColumn Header="累计盈利" Binding="{Binding TotalProfit}" Width="80"/>

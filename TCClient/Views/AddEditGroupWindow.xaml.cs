@@ -19,16 +19,9 @@ namespace TCClient.Views
             CandidateDataGrid.SelectionChanged += (s, e) =>
             {
                 ViewModel.SelectedCandidates.Clear();
-                foreach (SymbolStatus item in CandidateDataGrid.SelectedItems)
+                foreach (CandidateSymbol item in CandidateDataGrid.SelectedItems)
                 {
-                    ViewModel.SelectedCandidates.Add(new CandidateSymbol
-                    {
-                        Symbol = item.Symbol,
-                        Stg = item.Stg,
-                        StgDesc = item.StgDesc,
-                        TotalProfit = item.TotalProfit,
-                        Volume24h = 0
-                    });
+                    ViewModel.SelectedCandidates.Add(item);
                 }
             };
         }
