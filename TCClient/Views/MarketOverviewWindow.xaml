@@ -108,6 +108,7 @@
                     <Button Content="刷新数据" Command="{Binding RefreshCommand}" Width="100" Height="30" Margin="5"/>
                     <Button Content="找寻做多机会" Command="{Binding ShowLongOpportunitiesCommand}" Width="120" Height="30" Margin="5" FontSize="12" FontWeight="Bold" Background="#007BFF" Foreground="White" BorderThickness="0"/>
                     <Button Content="找寻做空机会" Command="{Binding ShowShortOpportunitiesCommand}" Width="120" Height="30" Margin="5" FontSize="12" FontWeight="Bold" Background="#DC3545" Foreground="White" BorderThickness="0"/>
+                    <Button Content="推送配置" Command="{Binding ShowPushConfigCommand}" Width="100" Height="30" Margin="5" FontSize="12" FontWeight="Bold" Background="#28A745" Foreground="White" BorderThickness="0"/>
                     <TextBlock Text="{Binding SelectedOpportunityType}" VerticalAlignment="Center" Margin="20,0,0,0" FontWeight="Bold"/>
                 </StackPanel>
             </Grid>

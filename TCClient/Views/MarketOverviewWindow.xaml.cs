@@ -40,7 +40,15 @@ namespace TCClient.Views
                     marketOverviewService = new MarketOverviewService(exchangeService, databaseService);
                 }
 
-                _viewModel = new MarketOverviewViewModel(marketOverviewService);
+                // 获取推送服务
+                var pushService = serviceProvider.GetService<PushNotificationService>();
+                if (pushService == null)
+                {
+                    AppSession.Log("MarketOverviewWindow: 创建PushNotificationService");
+                    pushService = new PushNotificationService();
+                }
+
+                _viewModel = new MarketOverviewViewModel(marketOverviewService, pushService);
                 DataContext = _viewModel;
 
                 AppSession.Log("MarketOverviewWindow: ViewModel初始化完成");
@@ -70,6 +78,8 @@ namespace TCClient.Views
             try
             {
                 AppSession.Log("MarketOverviewWindow: 窗口已关闭");
+                // 停止定时器
+                _viewModel?.StopTimers();
                 // 清理资源
                 _viewModel = null;
                 DataContext = null;

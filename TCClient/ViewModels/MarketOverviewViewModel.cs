@@ -17,6 +17,9 @@ namespace TCClient.ViewModels
     {
         private readonly MarketOverviewService _marketOverviewService;
         private readonly ILogger<MarketOverviewViewModel> _logger;
+        private readonly PushNotificationService _pushService;
+        private System.Windows.Threading.DispatcherTimer _autoRefreshTimer;
+        private System.Windows.Threading.DispatcherTimer _pushTimer;
 
         // 市场总览数据
         private MarketOverviewData _marketData = new MarketOverviewData();
@@ -38,9 +41,10 @@ namespace TCClient.ViewModels
         private ObservableCollection<OpportunityData> _opportunities20Days = new ObservableCollection<OpportunityData>();
         private ObservableCollection<OpportunityData> _opportunities30Days = new ObservableCollection<OpportunityData>();
 
-        public MarketOverviewViewModel(MarketOverviewService marketOverviewService, ILogger<MarketOverviewViewModel> logger = null)
+        public MarketOverviewViewModel(MarketOverviewService marketOverviewService, PushNotificationService pushService = null, ILogger<MarketOverviewViewModel> logger = null)
         {
             _marketOverviewService = marketOverviewService;
+            _pushService = pushService;
             _logger = logger;
 
             // 初始化命令  
@@ -49,6 +53,10 @@ namespace TCClient.ViewModels
             ShowShortOpportunitiesCommand = new Commands.RelayCommand(() => Task.Run(ShowShortOpportunitiesAsync));
             RefreshCommand = new Commands.RelayCommand(() => Task.Run(RefreshDataAsync));
             SelectSymbolCommand = new Commands.RelayCommand<string>(SelectSymbol);
+            ShowPushConfigCommand = new Commands.RelayCommand(ShowPushConfig);
+
+            // 初始化定时器
+            InitializeTimers();
 
             // 加载初始数据
             _ = Task.Run(LoadDataAsync);
@@ -220,6 +228,7 @@ namespace TCClient.ViewModels
         public ICommand ShowShortOpportunitiesCommand { get; }
         public ICommand RefreshCommand { get; }
         public ICommand SelectSymbolCommand { get; }
+        public ICommand ShowPushConfigCommand { get; }
 
         #endregion
 
@@ -499,6 +508,130 @@ namespace TCClient.ViewModels
             foreach (var item in collection)
             {
                 item.IsHighlighted = !string.IsNullOrEmpty(selectedSymbol) && item.Symbol == selectedSymbol;
+            }
+        }
+
+        /// <summary>
+        /// 初始化定时器
+        /// </summary>
+        private void InitializeTimers()
+        {
+            try
+            {
+                // 10分钟自动刷新定时器
+                _autoRefreshTimer = new System.Windows.Threading.DispatcherTimer();
+                _autoRefreshTimer.Interval = TimeSpan.FromMinutes(10);
+                _autoRefreshTimer.Tick += async (sender, e) => await RefreshDataAsync();
+                _autoRefreshTimer.Start();
+                
+                AppSession.Log("MarketOverviewViewModel: 10分钟自动刷新定时器启动");
+
+                // 推送定时器（根据配置决定间隔）
+                if (_pushService != null)
+                {
+                    _pushTimer = new System.Windows.Threading.DispatcherTimer();
+                    var config = _pushService.GetConfig();
+                    _pushTimer.Interval = TimeSpan.FromMinutes(config.PushIntervalMinutes);
+                    _pushTimer.Tick += async (sender, e) => await CheckAndPushAsync();
+                    _pushTimer.Start();
+                    
+                    AppSession.Log($"MarketOverviewViewModel: 推送定时器启动，间隔 {config.PushIntervalMinutes} 分钟");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"MarketOverviewViewModel: 初始化定时器失败 - {ex.Message}");
+                _logger?.LogError(ex, "初始化定时器失败");
+            }
+        }
+
+        /// <summary>
+        /// 显示推送配置窗口
+        /// </summary>
+        private void ShowPushConfig()
+        {
+            try
+            {
+                if (_pushService == null)
+                {
+                    System.Windows.MessageBox.Show("推送服务未初始化", "错误", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                    return;
+                }
+
+                var configWindow = new Views.PushConfigWindow(_pushService);
+                var result = configWindow.ShowDialog();
+                
+                if (result == true)
+                {
+                    // 配置更新后重新初始化推送定时器
+                    _pushTimer?.Stop();
+                    var config = _pushService.GetConfig();
+                    if (config.IsEnabled && _pushTimer != null)
+                    {
+                        _pushTimer.Interval = TimeSpan.FromMinutes(config.PushIntervalMinutes);
+                        _pushTimer.Start();
+                        AppSession.Log($"MarketOverviewViewModel: 推送定时器重启，间隔 {config.PushIntervalMinutes} 分钟");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"MarketOverviewViewModel: 显示推送配置失败 - {ex.Message}");
+                System.Windows.MessageBox.Show($"显示推送配置失败: {ex.Message}", "错误", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// 检查并执行推送
+        /// </summary>
+        private async Task CheckAndPushAsync()
+        {
+            try
+            {
+                if (_pushService == null || !_pushService.CanPush())
+                {
+                    AppSession.Log("MarketOverviewViewModel: 推送条件不满足，跳过推送");
+                    return;
+                }
+
+                AppSession.Log("MarketOverviewViewModel: 开始执行定时推送");
+
+                // 分析市场数据
+                var analysisResult = await _marketOverviewService.AnalyzeMarketForPushAsync();
+                
+                // 执行推送
+                var success = await _pushService.PushMarketAnalysisAsync(analysisResult);
+                
+                if (success)
+                {
+                    AppSession.Log("MarketOverviewViewModel: 定时推送执行成功");
+                }
+                else
+                {
+                    AppSession.Log("MarketOverviewViewModel: 定时推送执行失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"MarketOverviewViewModel: 定时推送异常 - {ex.Message}");
+                _logger?.LogError(ex, "定时推送异常");
+            }
+        }
+
+        /// <summary>
+        /// 停止定时器
+        /// </summary>
+        public void StopTimers()
+        {
+            try
+            {
+                _autoRefreshTimer?.Stop();
+                _pushTimer?.Stop();
+                AppSession.Log("MarketOverviewViewModel: 定时器已停止");
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"MarketOverviewViewModel: 停止定时器失败 - {ex.Message}");
             }
         }
 

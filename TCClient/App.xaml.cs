@@ -199,6 +199,9 @@ public partial class App : Application
         // 注册自选合约服务
         services.AddSingleton<FavoriteContractsService>();
         
+        // 注册推送服务
+        services.AddSingleton<PushNotificationService>();
+        
         // 注册策略追踪服务
         services.AddSingleton<StrategyTrackingService>();
         

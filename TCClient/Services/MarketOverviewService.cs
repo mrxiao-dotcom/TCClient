@@ -1275,5 +1275,200 @@ namespace TCClient.Services
                 LogManager.LogException("MarketOverviewService", ex, "批量初始化价格统计缓存失败");
             }
         }
+
+        /// <summary>
+        /// 分析市场涨跌分布数据，用于推送
+        /// </summary>
+        public async Task<MarketAnalysisResult> AnalyzeMarketForPushAsync()
+        {
+            try
+            {
+                LogManager.Log("MarketOverviewService", "开始分析市场数据用于推送");
+                _logger?.LogInformation("开始分析市场数据用于推送");
+
+                var result = new MarketAnalysisResult();
+
+                // 获取做多机会数据（涨幅数据）
+                var todayLongOpportunities = await GetOpportunityDataAsync(1, true);
+                var thirtyDayLongOpportunities = await GetOpportunityDataAsync(30, true);
+
+                // 获取做空机会数据（跌幅数据）
+                var todayShortOpportunities = await GetOpportunityDataAsync(1, false);
+                var thirtyDayShortOpportunities = await GetOpportunityDataAsync(30, false);
+
+                // 分析涨幅数据
+                result.RisingAnalysis = AnalyzeRisingData(todayLongOpportunities, thirtyDayLongOpportunities);
+
+                // 分析跌幅数据 - 使用做空机会数据
+                result.FallingAnalysis = AnalyzeFallingData(todayShortOpportunities, thirtyDayShortOpportunities);
+
+                var totalAnalyzed = Math.Max(
+                    Math.Max(todayLongOpportunities.Count, thirtyDayLongOpportunities.Count),
+                    Math.Max(todayShortOpportunities.Count, thirtyDayShortOpportunities.Count)
+                );
+                result.TotalSymbolsAnalyzed = totalAnalyzed;
+
+                LogManager.Log("MarketOverviewService", $"市场分析完成，共分析 {result.TotalSymbolsAnalyzed} 个合约（包含多空数据）");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("MarketOverviewService", ex, "分析市场数据失败");
+                _logger?.LogError(ex, "分析市场数据失败");
+                return new MarketAnalysisResult();
+            }
+        }
+
+        /// <summary>
+        /// 分析涨幅数据
+        /// </summary>
+        private MarketChangeAnalysis AnalyzeRisingData(List<OpportunityData> todayData, List<OpportunityData> thirtyDayData)
+        {
+            var analysis = new MarketChangeAnalysis();
+
+            // 筛选涨幅数据（涨幅>1%才考虑）
+            var todayRising = todayData.Where(x => x.ChangePercent > 1m).ToList();
+            var thirtyDayRising = thirtyDayData.Where(x => x.ChangePercent > 1m).ToList();
+
+            var todaySymbols = todayRising.Select(x => x.Symbol).ToHashSet();
+            var thirtyDaySymbols = thirtyDayRising.Select(x => x.Symbol).ToHashSet();
+
+            // 当天和30天都上涨
+            var bothSymbols = todaySymbols.Intersect(thirtyDaySymbols).ToList();
+            foreach (var symbol in bothSymbols.Take(10)) // 取前10个
+            {
+                var todayItem = todayRising.First(x => x.Symbol == symbol);
+                var thirtyDayItem = thirtyDayRising.First(x => x.Symbol == symbol);
+                
+                analysis.BothPeriods.Add(new SymbolChangeInfo
+                {
+                    Symbol = symbol,
+                    TodayChange = todayItem.ChangePercent,
+                    ThirtyDayChange = thirtyDayItem.ChangePercent,
+                    Volume24h = todayItem.Volume24h
+                });
+            }
+
+            // 仅当天上涨
+            var onlyTodaySymbols = todaySymbols.Except(thirtyDaySymbols).ToList();
+            foreach (var symbol in onlyTodaySymbols.Take(5)) // 取前5个
+            {
+                var todayItem = todayRising.First(x => x.Symbol == symbol);
+                analysis.OnlyToday.Add(new SymbolChangeInfo
+                {
+                    Symbol = symbol,
+                    TodayChange = todayItem.ChangePercent,
+                    Volume24h = todayItem.Volume24h
+                });
+            }
+
+            // 仅30天上涨
+            var onlyThirtyDaySymbols = thirtyDaySymbols.Except(todaySymbols).ToList();
+            foreach (var symbol in onlyThirtyDaySymbols.Take(5)) // 取前5个
+            {
+                var thirtyDayItem = thirtyDayRising.First(x => x.Symbol == symbol);
+                analysis.OnlyThirtyDays.Add(new SymbolChangeInfo
+                {
+                    Symbol = symbol,
+                    ThirtyDayChange = thirtyDayItem.ChangePercent,
+                    Volume24h = thirtyDayItem.Volume24h
+                });
+            }
+
+            return analysis;
+        }
+
+        /// <summary>
+        /// 分析跌幅数据（处理做空机会数据）
+        /// </summary>
+        private MarketChangeAnalysis AnalyzeFallingData(List<OpportunityData> todayData, List<OpportunityData> thirtyDayData)
+        {
+            var analysis = new MarketChangeAnalysis();
+
+            // 对于做空机会数据，ChangePercent表示从高点下跌的幅度（正值表示下跌机会）
+            // 筛选跌幅数据（下跌幅度>1%才考虑，即ChangePercent>1）
+            var todayFalling = todayData.Where(x => x.ChangePercent > 1m).ToList();
+            var thirtyDayFalling = thirtyDayData.Where(x => x.ChangePercent > 1m).ToList();
+
+            var todaySymbols = todayFalling.Select(x => x.Symbol).ToHashSet();
+            var thirtyDaySymbols = thirtyDayFalling.Select(x => x.Symbol).ToHashSet();
+
+            // 当天和30天都下跌
+            var bothSymbols = todaySymbols.Intersect(thirtyDaySymbols).ToList();
+            foreach (var symbol in bothSymbols.Take(10)) // 取前10个
+            {
+                var todayItem = todayFalling.First(x => x.Symbol == symbol);
+                var thirtyDayItem = thirtyDayFalling.First(x => x.Symbol == symbol);
+                
+                analysis.BothPeriods.Add(new SymbolChangeInfo
+                {
+                    Symbol = symbol,
+                    // 转换为负值显示跌幅
+                    TodayChange = -Math.Abs(todayItem.ChangePercent),
+                    ThirtyDayChange = -Math.Abs(thirtyDayItem.ChangePercent),
+                    Volume24h = todayItem.Volume24h
+                });
+            }
+
+            // 仅当天下跌
+            var onlyTodaySymbols = todaySymbols.Except(thirtyDaySymbols).ToList();
+            foreach (var symbol in onlyTodaySymbols.Take(5)) // 取前5个
+            {
+                var todayItem = todayFalling.First(x => x.Symbol == symbol);
+                analysis.OnlyToday.Add(new SymbolChangeInfo
+                {
+                    Symbol = symbol,
+                    // 转换为负值显示跌幅
+                    TodayChange = -Math.Abs(todayItem.ChangePercent),
+                    Volume24h = todayItem.Volume24h
+                });
+            }
+
+            // 仅30天下跌
+            var onlyThirtyDaySymbols = thirtyDaySymbols.Except(todaySymbols).ToList();
+            foreach (var symbol in onlyThirtyDaySymbols.Take(5)) // 取前5个
+            {
+                var thirtyDayItem = thirtyDayFalling.First(x => x.Symbol == symbol);
+                analysis.OnlyThirtyDays.Add(new SymbolChangeInfo
+                {
+                    Symbol = symbol,
+                    // 转换为负值显示跌幅
+                    ThirtyDayChange = -Math.Abs(thirtyDayItem.ChangePercent),
+                    Volume24h = thirtyDayItem.Volume24h
+                });
+            }
+
+            return analysis;
+        }
+
+        /// <summary>
+        /// 获取机会数据（内部方法，用于分析）
+        /// </summary>
+        private async Task<List<OpportunityData>> GetOpportunityDataAsync(int days, bool isRising = true)
+        {
+            try
+            {
+                LogManager.Log("MarketOverviewService", $"获取{days}天{(isRising ? "做多" : "做空")}机会数据");
+                
+                // 根据类型获取对应的机会数据
+                var opportunities = isRising ? await GetLongOpportunitiesAsync() : await GetShortOpportunitiesAsync();
+                
+                if (opportunities.ContainsKey(days))
+                {
+                    var data = opportunities[days];
+                    LogManager.Log("MarketOverviewService", $"成功获取{days}天{(isRising ? "做多" : "做空")}数据，共{data.Count}条");
+                    return data;
+                }
+                
+                LogManager.Log("MarketOverviewService", $"未找到{days}天{(isRising ? "做多" : "做空")}数据");
+                return new List<OpportunityData>();
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("MarketOverviewService", ex, $"获取{days}天{(isRising ? "做多" : "做空")}数据失败");
+                _logger?.LogError(ex, $"获取{days}天{(isRising ? "涨幅" : "跌幅")}数据失败");
+                return new List<OpportunityData>();
+            }
+        }
     }
 } 
