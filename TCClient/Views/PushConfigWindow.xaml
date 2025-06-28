@@ -136,6 +136,70 @@
                     </StackPanel>
                 </Border>
 
+                <!-- 成交量监控预警 -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="📈 成交量监控预警" Style="{StaticResource SectionHeaderStyle}"/>
+                        
+                        <TextBlock Text="监控CoinStats网站的24小时成交量数据，当触发阈值时发送预警推送" 
+                                   Foreground="Gray" FontSize="12" Margin="0,0,0,15"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- 启用成交量监控 -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="启用监控:" VerticalAlignment="Center" Margin="0,0,15,10"/>
+                            <CheckBox Grid.Row="0" Grid.Column="1" x:Name="EnableVolumeMonitorCheckBox" Content="开启成交量监控" Margin="0,0,0,10"/>
+
+                            <!-- 低成交量预警阈值 -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="低成交量预警:" VerticalAlignment="Center" Margin="0,0,15,10"/>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBox x:Name="LowVolumeThresholdTextBox" Width="120" Height="25" VerticalAlignment="Center"/>
+                                <TextBlock Text="亿美元" VerticalAlignment="Center" Margin="5,0,15,0"/>
+                                <CheckBox x:Name="EnableLowVolumeAlertCheckBox" Content="启用低成交量预警" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- 高成交量预警阈值 -->
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="高成交量预警:" VerticalAlignment="Center" Margin="0,0,15,10"/>
+                            <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBox x:Name="HighVolumeThresholdTextBox" Width="120" Height="25" VerticalAlignment="Center"/>
+                                <TextBlock Text="亿美元" VerticalAlignment="Center" Margin="5,0,15,0"/>
+                                <CheckBox x:Name="EnableHighVolumeAlertCheckBox" Content="启用高成交量预警" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- 监控间隔 -->
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="监控间隔:" VerticalAlignment="Center" Margin="0,0,15,10"/>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBox x:Name="VolumeMonitorIntervalTextBox" Width="80" Height="25" VerticalAlignment="Center"/>
+                                <TextBlock Text="分钟" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                <TextBlock Text="(建议: 10分钟)" VerticalAlignment="Center" Margin="10,0,0,0" Foreground="Gray" FontSize="12"/>
+                            </StackPanel>
+
+                            <!-- 当前成交量显示 -->
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="当前成交量:" VerticalAlignment="Center" Margin="0,0,15,10"/>
+                            <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,10">
+                                <TextBlock x:Name="CurrentVolumeText" Text="未获取" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <Button x:Name="RefreshVolumeButton" Content="刷新" Width="60" Height="25"
+                                        Background="#17A2B8" Foreground="White" BorderThickness="0"
+                                        Click="RefreshVolumeButton_Click" Margin="0,0,10,0"/>
+                                <Button x:Name="TestVolumeAlertButton" Content="测试预警" Width="80" Height="25"
+                                        Background="#FFC107" Foreground="White" BorderThickness="0"
+                                        Click="TestVolumeAlertButton_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
                 <!-- 推送状态 -->
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>

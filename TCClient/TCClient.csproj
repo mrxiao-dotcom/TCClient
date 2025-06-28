@@ -32,7 +32,8 @@
     <PackageReference Include="MySql.Data" Version="8.2.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     
-
+    <!-- HTML 解析库 -->
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.46" />
     
     <!-- 图表库 -->
     <PackageReference Include="OxyPlot.Wpf" Version="2.1.2" />

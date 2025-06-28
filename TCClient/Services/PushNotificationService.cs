@@ -216,6 +216,82 @@ namespace TCClient.Services
         }
 
         /// <summary>
+        /// 推送自定义消息（用于成交量预警等特殊场景）
+        /// </summary>
+        /// <param name="title">消息标题</param>
+        /// <param name="content">消息内容</param>
+        /// <returns>推送是否成功</returns>
+        public async Task<bool> PushCustomMessageAsync(string title, string content)
+        {
+            if (!CanPush())
+            {
+                _logger?.LogInformation("推送条件不满足，跳过自定义消息推送");
+                return false;
+            }
+
+            try
+            {
+                var successCount = 0;
+                var totalCount = _config.XtuisTokens.Count;
+
+                foreach (var token in _config.XtuisTokens)
+                {
+                    try
+                    {
+                        // 尝试官方GET方法
+                        var success = await TryOfficialGetMethod(token, title, content);
+                        if (!success)
+                        {
+                            // 备用：尝试官方POST方法
+                            success = await TryOfficialPostMethod(token, title, content);
+                        }
+
+                        if (success)
+                        {
+                            successCount++;
+                            _logger?.LogInformation($"自定义消息推送成功到token: {token}");
+                        }
+                        else
+                        {
+                            _logger?.LogWarning($"自定义消息推送失败到token: {token}");
+                        }
+                        
+                        // 避免频繁请求，每个token之间间隔1秒
+                        await Task.Delay(1000);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, $"推送自定义消息到token {token} 失败");
+                    }
+                }
+
+                var overallSuccess = successCount > 0;
+                if (overallSuccess)
+                {
+                    // 更新推送计数和时间
+                    _config.TodayPushCount++;
+                    _config.LastPushDate = DateTime.Today;
+                    _config.LastPushTime = DateTime.Now;
+                    _config.MinutePushCount++;
+                    
+                    SaveConfig();
+                    _logger?.LogInformation($"自定义消息推送完成: {successCount}/{totalCount} 个token推送成功，今日已推送 {_config.TodayPushCount}/{_config.DailyPushLimit} 次");
+                }
+                else
+                {
+                    _logger?.LogWarning("自定义消息推送失败，未更新计数");
+                }
+
+                return overallSuccess;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "推送自定义消息失败");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 推送市场分析消息
         /// </summary>
         public async Task<bool> PushMarketAnalysisAsync(MarketAnalysisResult analysisResult)

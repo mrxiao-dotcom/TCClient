@@ -39,6 +39,11 @@ namespace TCClient.Services
         /// 是否启用账户查询定时器
         /// </summary>
         public bool EnableAccountQueryTimer { get; set; } = true;
+        
+        /// <summary>
+        /// 是否启用成交量监控服务
+        /// </summary>
+        public bool EnableVolumeMonitorService { get; set; } = false;
     }
 
     /// <summary>
@@ -97,7 +102,7 @@ namespace TCClient.Services
         public void StartAllEnabledServices()
         {
             LogManager.Log("BackgroundServiceManager", "开始启动后台服务...");
-            LogManager.Log("BackgroundServiceManager", $"服务配置: 条件单={_options.EnableConditionalOrderService}, 止损={_options.EnableStopLossMonitorService}, 寻找机会={_options.EnableFindOpportunityTimer}, 价格更新={_options.EnableOrderPriceUpdater}, 账户信息={_options.EnableAccountInfoUpdater}, 账户查询={_options.EnableAccountQueryTimer}");
+            LogManager.Log("BackgroundServiceManager", $"服务配置: 条件单={_options.EnableConditionalOrderService}, 止损={_options.EnableStopLossMonitorService}, 寻找机会={_options.EnableFindOpportunityTimer}, 价格更新={_options.EnableOrderPriceUpdater}, 账户信息={_options.EnableAccountInfoUpdater}, 账户查询={_options.EnableAccountQueryTimer}, 成交量监控={_options.EnableVolumeMonitorService}");
 
             // 启动条件单监控服务
             if (_options.EnableConditionalOrderService)
@@ -117,6 +122,16 @@ namespace TCClient.Services
             else
             {
                 LogManager.Log("BackgroundServiceManager", "止损监控服务已禁用");
+            }
+
+            // 启动成交量监控服务
+            if (_options.EnableVolumeMonitorService)
+            {
+                StartVolumeMonitorService();
+            }
+            else
+            {
+                LogManager.Log("BackgroundServiceManager", "成交量监控服务已禁用");
             }
 
             LogManager.Log("BackgroundServiceManager", "后台服务启动完成");
@@ -189,6 +204,35 @@ namespace TCClient.Services
         }
 
         /// <summary>
+        /// 启动成交量监控服务
+        /// </summary>
+        private void StartVolumeMonitorService()
+        {
+            try
+            {
+                var service = _serviceProvider.GetService<VolumeMonitorService>();
+                if (service != null)
+                {
+                    service.StartMonitoring();
+                    _runningServices["VolumeMonitor"] = service;
+                    LogManager.Log("BackgroundServiceManager", "成交量监控服务已启动");
+                }
+                else
+                {
+                    // 如果依赖注入中没有注册服务，则手动创建
+                    var volumeService = new VolumeMonitorService();
+                    volumeService.StartMonitoring();
+                    _runningServices["VolumeMonitor"] = volumeService;
+                    LogManager.Log("BackgroundServiceManager", "成交量监控服务已启动（手动创建）");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogException("BackgroundServiceManager", ex, "启动成交量监控服务失败");
+            }
+        }
+
+        /// <summary>
         /// 停止指定的服务
         /// </summary>
         public void StopService(string serviceName)
@@ -204,6 +248,10 @@ namespace TCClient.Services
                     else if (service is StopLossMonitorService stopLossService)
                     {
                         stopLossService.Stop();
+                    }
+                    else if (service is VolumeMonitorService volumeService)
+                    {
+                        volumeService.StopMonitoring();
                     }
 
                     service.Dispose();
@@ -255,7 +303,8 @@ namespace TCClient.Services
                 EnableFindOpportunityTimer = _options.EnableFindOpportunityTimer,
                 EnableOrderPriceUpdater = _options.EnableOrderPriceUpdater,
                 EnableAccountInfoUpdater = _options.EnableAccountInfoUpdater,
-                EnableAccountQueryTimer = _options.EnableAccountQueryTimer
+                EnableAccountQueryTimer = _options.EnableAccountQueryTimer,
+                EnableVolumeMonitorService = _options.EnableVolumeMonitorService
             };
         }
 
@@ -270,6 +319,7 @@ namespace TCClient.Services
             _options.EnableOrderPriceUpdater = newOptions.EnableOrderPriceUpdater;
             _options.EnableAccountInfoUpdater = newOptions.EnableAccountInfoUpdater;
             _options.EnableAccountQueryTimer = newOptions.EnableAccountQueryTimer;
+            _options.EnableVolumeMonitorService = newOptions.EnableVolumeMonitorService;
             
             SaveOptionsToConfig();
             LogManager.Log("BackgroundServiceManager", "后台服务配置已更新");
@@ -283,7 +333,8 @@ namespace TCClient.Services
             return new Dictionary<string, bool>
             {
                 ["ConditionalOrder"] = _runningServices.ContainsKey("ConditionalOrder"),
-                ["StopLossMonitor"] = _runningServices.ContainsKey("StopLossMonitor")
+                ["StopLossMonitor"] = _runningServices.ContainsKey("StopLossMonitor"),
+                ["VolumeMonitor"] = _runningServices.ContainsKey("VolumeMonitor")
             };
         }
 

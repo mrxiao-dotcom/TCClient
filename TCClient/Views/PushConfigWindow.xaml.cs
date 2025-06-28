@@ -14,14 +14,17 @@ namespace TCClient.Views
     public partial class PushConfigWindow : Window
     {
         private readonly PushNotificationService _pushService;
+        private readonly VolumeMonitorService _volumeMonitorService;
         private ObservableCollection<string> _tokens;
         private PushNotificationService.PushConfig _config;
+        private VolumeMonitorService.VolumeMonitorConfig _volumeConfig;
         private const string TokenPlaceholder = "请输入虾推啥Token...";
 
-        public PushConfigWindow(PushNotificationService pushService)
+        public PushConfigWindow(PushNotificationService pushService, VolumeMonitorService volumeMonitorService = null)
         {
             InitializeComponent();
             _pushService = pushService;
+            _volumeMonitorService = volumeMonitorService ?? new VolumeMonitorService();
             _tokens = new ObservableCollection<string>();
             TokenListBox.ItemsSource = _tokens;
             
@@ -43,11 +46,20 @@ namespace TCClient.Views
             try
             {
                 _config = _pushService.GetConfig();
+                _volumeConfig = _volumeMonitorService.GetConfig();
                 
-                // 更新界面控件
+                // 更新推送配置界面控件
                 EnablePushCheckBox.IsChecked = _config.IsEnabled;
                 DailyLimitTextBox.Text = _config.DailyPushLimit.ToString();
                 IntervalTextBox.Text = _config.PushIntervalMinutes.ToString();
+                
+                // 更新成交量监控配置界面控件
+                EnableVolumeMonitorCheckBox.IsChecked = _volumeConfig.IsEnabled;
+                LowVolumeThresholdTextBox.Text = (_volumeConfig.LowVolumeThreshold / 1_000_000_000).ToString(); // 转换为亿美元
+                HighVolumeThresholdTextBox.Text = (_volumeConfig.HighVolumeThreshold / 1_000_000_000).ToString(); // 转换为亿美元
+                VolumeMonitorIntervalTextBox.Text = _volumeConfig.MonitorIntervalMinutes.ToString();
+                EnableLowVolumeAlertCheckBox.IsChecked = _volumeConfig.EnableLowVolumeAlert;
+                EnableHighVolumeAlertCheckBox.IsChecked = _volumeConfig.EnableHighVolumeAlert;
                 
                 // 加载Token列表
                 _tokens.Clear();
@@ -57,6 +69,7 @@ namespace TCClient.Views
                 }
                 
                 RefreshStatusDisplay();
+                RefreshVolumeDisplay();
             }
             catch (Exception ex)
             {
@@ -315,8 +328,9 @@ namespace TCClient.Views
             try
             {
                 var config = GetCurrentConfig();
+                var volumeConfig = GetCurrentVolumeConfig();
                 
-                // 验证配置
+                // 验证推送配置
                 if (config.IsEnabled && config.XtuisTokens.Count == 0)
                 {
                     var result = MessageBox.Show("推送已启用但未配置Token，是否继续保存？", "确认保存", 
@@ -326,10 +340,11 @@ namespace TCClient.Views
                 }
                 
                 _pushService.UpdateConfig(config);
+                _volumeMonitorService.UpdateConfig(volumeConfig);
                 
                 MessageBox.Show("配置保存成功！", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
                 
-                AppSession.Log("PushConfigWindow: 推送配置保存成功");
+                AppSession.Log("PushConfigWindow: 推送配置和成交量监控配置保存成功");
                 DialogResult = true;
                 Close();
             }
@@ -405,6 +420,204 @@ namespace TCClient.Views
             {
                 NewTokenTextBox.Text = TokenPlaceholder;
                 NewTokenTextBox.Foreground = System.Windows.Media.Brushes.Gray;
+            }
+        }
+
+        /// <summary>
+        /// 获取当前成交量监控配置
+        /// </summary>
+        private VolumeMonitorService.VolumeMonitorConfig GetCurrentVolumeConfig()
+        {
+            var config = new VolumeMonitorService.VolumeMonitorConfig
+            {
+                IsEnabled = EnableVolumeMonitorCheckBox.IsChecked ?? false,
+                EnableLowVolumeAlert = EnableLowVolumeAlertCheckBox.IsChecked ?? true,
+                EnableHighVolumeAlert = EnableHighVolumeAlertCheckBox.IsChecked ?? true,
+                MonitorIntervalMinutes = 10, // 默认值
+                LastAlertTime = _volumeConfig?.LastAlertTime ?? DateTime.MinValue,
+                AlertCooldownMinutes = _volumeConfig?.AlertCooldownMinutes ?? 60
+            };
+
+            // 解析低成交量阈值（从亿美元转换为美元）
+            if (decimal.TryParse(LowVolumeThresholdTextBox.Text, out decimal lowThreshold) && lowThreshold > 0)
+            {
+                config.LowVolumeThreshold = lowThreshold * 1_000_000_000;
+            }
+            else
+            {
+                config.LowVolumeThreshold = 50_000_000_000; // 默认500亿美元
+            }
+
+            // 解析高成交量阈值（从亿美元转换为美元）
+            if (decimal.TryParse(HighVolumeThresholdTextBox.Text, out decimal highThreshold) && highThreshold > 0)
+            {
+                config.HighVolumeThreshold = highThreshold * 1_000_000_000;
+            }
+            else
+            {
+                config.HighVolumeThreshold = 100_000_000_000; // 默认1000亿美元
+            }
+
+            // 验证阈值关系
+            if (config.HighVolumeThreshold <= config.LowVolumeThreshold)
+            {
+                throw new ArgumentException("高成交量阈值必须大于低成交量阈值");
+            }
+
+            // 解析监控间隔
+            if (int.TryParse(VolumeMonitorIntervalTextBox.Text, out int interval) && interval > 0)
+            {
+                config.MonitorIntervalMinutes = interval;
+            }
+
+            return config;
+        }
+
+        /// <summary>
+        /// 刷新成交量显示
+        /// </summary>
+        private void RefreshVolumeDisplay()
+        {
+            try
+            {
+                var lastVolume = _volumeMonitorService.GetLastVolume();
+                if (lastVolume.HasValue)
+                {
+                    CurrentVolumeText.Text = $"${lastVolume.Value / 1_000_000_000:F1}B";
+                    CurrentVolumeText.Foreground = System.Windows.Media.Brushes.Green;
+                }
+                else
+                {
+                    CurrentVolumeText.Text = "未获取";
+                    CurrentVolumeText.Foreground = System.Windows.Media.Brushes.Gray;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"PushConfigWindow: 刷新成交量显示失败 - {ex.Message}");
+                CurrentVolumeText.Text = "获取失败";
+                CurrentVolumeText.Foreground = System.Windows.Media.Brushes.Red;
+            }
+        }
+
+        /// <summary>
+        /// 刷新成交量按钮点击
+        /// </summary>
+        private async void RefreshVolumeButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                RefreshVolumeButton.IsEnabled = false;
+                RefreshVolumeButton.Content = "获取中...";
+                CurrentVolumeText.Text = "获取中...";
+                CurrentVolumeText.Foreground = System.Windows.Media.Brushes.Blue;
+
+                var volume = await _volumeMonitorService.ManualCheckAsync();
+                RefreshVolumeDisplay();
+
+                if (volume.HasValue)
+                {
+                    AppSession.Log($"PushConfigWindow: 手动获取成交量成功 - ${volume.Value:N0}");
+                }
+                else
+                {
+                    MessageBox.Show("获取成交量数据失败，请检查网络连接", "获取失败", 
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"PushConfigWindow: 手动获取成交量失败 - {ex.Message}");
+                MessageBox.Show($"获取成交量数据失败: {ex.Message}", "错误", 
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                CurrentVolumeText.Text = "获取失败";
+                CurrentVolumeText.Foreground = System.Windows.Media.Brushes.Red;
+            }
+            finally
+            {
+                RefreshVolumeButton.IsEnabled = true;
+                RefreshVolumeButton.Content = "刷新";
+            }
+        }
+
+        /// <summary>
+        /// 测试成交量预警按钮点击
+        /// </summary>
+        private async void TestVolumeAlertButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                TestVolumeAlertButton.IsEnabled = false;
+                TestVolumeAlertButton.Content = "测试中...";
+
+                AppSession.Log("PushConfigWindow: 开始测试成交量预警推送");
+
+                // 先保存当前配置
+                try
+                {
+                    var config = GetCurrentConfig();
+                    var volumeConfig = GetCurrentVolumeConfig();
+                    
+                    _pushService.UpdateConfig(config);
+                    _volumeMonitorService.UpdateConfig(volumeConfig);
+                }
+                catch (Exception configEx)
+                {
+                    MessageBox.Show($"保存配置失败: {configEx.Message}", "配置错误", 
+                        MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // 执行测试
+                var success = await _volumeMonitorService.TestVolumeAlertAsync();
+
+                if (success)
+                {
+                    MessageBox.Show("✅ 成交量预警推送测试成功！\n\n请检查你的推送接收端确认是否收到测试消息。", 
+                        "测试成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                    AppSession.Log("PushConfigWindow: 成交量预警推送测试成功");
+                }
+                else
+                {
+                    var pushConfig = _pushService.GetConfig();
+                    var errorMsg = "❌ 成交量预警推送测试失败\n\n可能的原因：\n";
+                    
+                    if (!pushConfig.IsEnabled)
+                    {
+                        errorMsg += "• 推送功能未启用\n";
+                    }
+                    if (pushConfig.XtuisTokens.Count == 0)
+                    {
+                        errorMsg += "• 未配置虾推啥Token\n";
+                    }
+                    if (pushConfig.TodayPushCount >= pushConfig.DailyPushLimit)
+                    {
+                        errorMsg += $"• 已达到每日推送限制 ({pushConfig.TodayPushCount}/{pushConfig.DailyPushLimit})\n";
+                    }
+                    
+                    var timeSinceLastPush = DateTime.Now - pushConfig.LastPushTime;
+                    if (timeSinceLastPush.TotalMinutes < pushConfig.PushIntervalMinutes)
+                    {
+                        var remainingMinutes = pushConfig.PushIntervalMinutes - timeSinceLastPush.TotalMinutes;
+                        errorMsg += $"• 推送间隔未到，还需等待 {remainingMinutes:F1} 分钟\n";
+                    }
+                    
+                    errorMsg += "\n请检查推送配置后重试。";
+                    
+                    MessageBox.Show(errorMsg, "测试失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AppSession.Log("PushConfigWindow: 成交量预警推送测试失败");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppSession.Log($"PushConfigWindow: 测试成交量预警推送失败 - {ex.Message}");
+                MessageBox.Show($"测试成交量预警推送失败: {ex.Message}", "错误", 
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                TestVolumeAlertButton.IsEnabled = true;
+                TestVolumeAlertButton.Content = "测试预警";
             }
         }
     }
