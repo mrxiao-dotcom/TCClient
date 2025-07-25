@@ -304,7 +304,7 @@ namespace TCClient.Services
 
             try
             {
-                var message = FormatMarketAnalysisMessage(analysisResult);
+                var message = await FormatMarketAnalysisMessageAsync(analysisResult);
                 var success = await SendPushMessageAsync(message);
                 
                 if (success)
@@ -335,10 +335,26 @@ namespace TCClient.Services
         /// <summary>
         /// 格式化市场分析消息
         /// </summary>
-        private string FormatMarketAnalysisMessage(MarketAnalysisResult analysisResult)
+        private async Task<string> FormatMarketAnalysisMessageAsync(MarketAnalysisResult analysisResult)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"📊 市场分析报告 - {DateTime.Now:yyyy-MM-dd HH:mm}");
+            
+            // 添加24小时成交量信息
+            try
+            {
+                var webScrapingService = new WebScrapingService();
+                var volume24h = await webScrapingService.GetCoinStats24hVolumeAsync();
+                if (volume24h.HasValue)
+                {
+                    sb.AppendLine($"🔢 目前24h成交量：{volume24h.Value / 1_000_000_000:F1}亿");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "获取24小时成交量失败");
+            }
+            
             sb.AppendLine("━━━━━━━━━━━━━━━━━━━━");
             
             // 涨幅分析

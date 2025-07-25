@@ -43,7 +43,7 @@ namespace TCClient.Services
         /// <summary>
         /// 是否启用成交量监控服务
         /// </summary>
-        public bool EnableVolumeMonitorService { get; set; } = false;
+        public bool EnableVolumeMonitorService { get; set; } = false; // 已禁用：不再单独对成交总量进行提醒
     }
 
     /// <summary>
@@ -125,6 +125,8 @@ namespace TCClient.Services
             }
 
             // 启动成交量监控服务
+            // 已禁用：不再单独对成交总量进行提醒，成交量信息已集成到市场分析推送中
+            /*
             if (_options.EnableVolumeMonitorService)
             {
                 StartVolumeMonitorService();
@@ -133,6 +135,8 @@ namespace TCClient.Services
             {
                 LogManager.Log("BackgroundServiceManager", "成交量监控服务已禁用");
             }
+            */
+            LogManager.Log("BackgroundServiceManager", "成交量监控服务已永久禁用 - 成交量信息已集成到市场分析推送中");
 
             LogManager.Log("BackgroundServiceManager", "后台服务启动完成");
         }
@@ -154,6 +158,7 @@ namespace TCClient.Services
             _options.EnableOrderPriceUpdater = false;
             _options.EnableAccountInfoUpdater = false;
             _options.EnableAccountQueryTimer = false;
+            _options.EnableVolumeMonitorService = false; // 成交量监控服务已永久禁用
             
             // 保存配置
             SaveOptionsToConfig();
